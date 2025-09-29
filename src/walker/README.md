@@ -54,7 +54,7 @@ This project uses Poetry for dependency management.
 The application is run from the command line. You need to provide the path to the directory you want to scan.
 
 ```bash
-poetry run python -m walker.main <ROOT_PATH> [OPTIONS]
+poetry run python -m walker.main <ROOT_PATH_1> [ROOT_PATH_2] ... [OPTIONS]
 ```
 
 ### Arguments

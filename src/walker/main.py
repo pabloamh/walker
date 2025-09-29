@@ -3,7 +3,7 @@ import concurrent.futures
 import queue
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import click
 from sqlalchemy.orm import Session
@@ -47,13 +47,13 @@ def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
     return processor.process()
 
 @click.command()
-@click.argument('root_path', type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.argument('root_paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
 @click.option('--workers', default=3, help='Number of processor workers.')
-def run_indexer(root_path: str, workers: int):
+def run_indexer(root_paths: Tuple[Path, ...], workers: int):
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
-    ROOT_PATH: The directory to start scanning from.
+    ROOT_PATHS: One or more directories to start scanning from.
     """
     click.echo(f"Initializing database...")
     database.init_db()
@@ -63,8 +63,12 @@ def run_indexer(root_path: str, workers: int):
     writer_thread = threading.Thread(target=db_writer_worker, args=(db_session,))
     writer_thread.start()
 
-    click.echo(f"Scanning directory: {root_path}...")
-    file_paths = list(scanner.scan_directory(root_path))
+    click.echo(f"Scanning directories: {', '.join(map(str, root_paths))}...")
+    
+    all_file_paths = []
+    for path in root_paths:
+        all_file_paths.extend(scanner.scan_directory(path))
+    file_paths = list(set(all_file_paths)) # Use set to remove duplicates if paths overlap
     click.echo(f"Found {len(file_paths)} files to process.")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
