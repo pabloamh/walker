@@ -3,6 +3,8 @@ import email
 import hashlib
 import json
 import os
+import tarfile
+import zipfile
 from typing import Optional, Tuple, Any, Union
 
 import imagehash
@@ -11,11 +13,17 @@ import magic
 import pymupdf
 from pymediainfo import MediaInfo
 from tinytag import TinyTag
+from sentence_transformers import SentenceTransformer
 from PIL import Image, ExifTags
 from docx import Document
 
 from pathlib import Path
 from .models import FileMetadata
+
+# --- Model Loading ---
+# Load the model once when the module is imported. This is crucial for performance,
+# as it prevents reloading the model for every file in a multi-processing environment.
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
@@ -123,6 +131,24 @@ class FileProcessor:
         except Exception:
             return None
 
+    def _process_archive(self) -> Optional[str]:
+        """Extracts the list of files from a compressed archive."""
+        try:
+            file_list = []
+            if self.mime_type == "application/zip":
+                with zipfile.ZipFile(self.file_path, 'r') as zf:
+                    file_list = zf.namelist()
+            elif tarfile.is_tarfile(self.file_path):
+                with tarfile.open(self.file_path, 'r:*') as tf:
+                    file_list = tf.getnames()
+            
+            if file_list:
+                archive_data = {"files": file_list, "file_count": len(file_list)}
+                return json.dumps(archive_data)
+            return None
+        except (zipfile.BadZipFile, tarfile.TarError):
+            return None # Not a valid archive or corrupted
+
     def _extract_text_content(self) -> Optional[str]:
         """Extracts text content from various file types based on MIME type."""
         content = ""
@@ -189,12 +215,14 @@ class FileProcessor:
             metadata_kwargs = {
                 "path": str(self.file_path),
                 "filename": self.file_path.name,
-                "size_bytes": self.file_path.stat().st_size,
+                "size_bytes": (stat_result := self.file_path.stat()).st_size,
+                "mtime": stat_result.st_mtime,
                 "crypto_hash": self._get_crypto_hash(),
                 "mime_type": self.mime_type,
                 "perceptual_hash": None,
                 "content": None,
                 "exif_data": None,
+                "content_embedding": None,
             }
 
             if self.mime_type:
@@ -208,11 +236,20 @@ class FileProcessor:
                 elif self.mime_type.startswith("audio"):
                     # For audio, we also store media metadata in the 'exif_data' field.
                     metadata_kwargs["exif_data"] = self._process_audio()
+                elif self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz"):
+                    # For archives, we store the file list in the 'exif_data' field.
+                    metadata_kwargs["exif_data"] = self._process_archive()
+
                 
             # For any text-based format, try to extract content.
             metadata_kwargs["content"] = self._extract_text_content()
 
+            # If content was extracted, generate an embedding for it.
+            if metadata_kwargs["content"]:
+                embedding = embedding_model.encode(metadata_kwargs["content"])
+                metadata_kwargs["content_embedding"] = embedding.tobytes()
+
             return FileMetadata(**metadata_kwargs)
         except (IOError, PermissionError) as e:
-            print(f"Could not process {self.file_path}: {e}")
+            # Suppressing print statements in workers for cleaner output
             return None

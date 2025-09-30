@@ -15,12 +15,17 @@ The application is built with a multi-threaded architecture to process files con
 - **Specialized Content Extraction**:
     - **Images**: Generates perceptual hashes (p-hash) for similarity detection and extracts EXIF metadata.
     - **Documents**: Extracts text content from PDF (`.pdf`) and Microsoft Word (`.docx`) files.
+    - **Videos**: Extracts media metadata like resolution, duration, and codecs.
     - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
+- **Archive Indexing**: Lists the contents of compressed files (`.zip`, `.tar`, `.tar.gz`, etc.).
 - **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
 - **Command-Line Interface**: Easy-to-use CLI built with Click.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
+- **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
+- **Reporting**: Includes commands to find duplicate files, textually similar documents, and summarize disk usage.
+- **Configuration File**: Uses a `walker.toml` file for persistent settings.
 
 ## Installation
 
@@ -30,15 +35,20 @@ This project uses Poetry for dependency management.
     -   Python 3.10+
     -   Poetry
     -   `libmagic`: This is required by the `python-magic` library.
+    -   `mediainfo`: This is required for video metadata extraction.
 
     On Debian/Ubuntu, you can install `libmagic` with:
     ```bash
     sudo apt-get update && sudo apt-get install libmagic1
     ```
+    And `mediainfo` with:
+    ```bash
+    sudo apt-get update && sudo apt-get install mediainfo
+    ```
 
     On macOS (using Homebrew):
     ```bash
-    brew install libmagic
+    brew install libmagic mediainfo
     ```
 
 2.  **Clone the repository**:
@@ -55,25 +65,56 @@ This project uses Poetry for dependency management.
 
 ## Usage
 
-The application is run from the command line. You need to provide the path to the directory you want to scan.
+The application has multiple sub-commands.
+
+### Indexing Files
+
+To scan a directory and build or update your index, use the `index` command.
 
 ```bash
-poetry run python -m walker.main <ROOT_PATH_1> [ROOT_PATH_2] ... [OPTIONS]
+poetry run python -m walker.main index <ROOT_PATH_1> [ROOT_PATH_2] ... [OPTIONS]
 ```
 
-### Arguments
--   `ROOT_PATH`: The directory to start scanning from.
+**Arguments:**
+-   `ROOT_PATH`: One or more directories to start scanning from.
 
-### Options
--   `--workers INTEGER`: The number of worker threads to use for processing files. Defaults to 3.
--   `--exclude TEXT`: Directory name to exclude. Can be used multiple times (e.g., `--exclude "node_modules" --exclude "venv"`).
+**Options:**
+-   `--workers INTEGER`: The number of worker threads to use for processing files.
+-   `--exclude TEXT`: Directory name to exclude. Can be used multiple times.
 
-### Example
-
-To scan a directory named `~/Documents/my_files` using 8 worker threads:
-
+**Example:**
 ```bash
-poetry run python -m walker.main ~/Documents/my_files --workers 8
+# Scan a directory using 8 worker threads
+poetry run python -m walker.main index ~/Documents/my_files --workers 8
 ```
 
 The application will create a `file_indexer.db` file in the project's root directory containing the metadata of all the processed files.
+
+## Configuration
+
+For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the directory where you run the command.
+
+This is the recommended way to set options you use frequently, like the number of workers or a standard list of folders to exclude.
+
+**Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
+
+### Example `walker.toml`
+
+All settings for `walker` must be placed under the `[tool.walker]` section in the TOML file.
+
+```toml
+[tool.walker]
+# Set the default number of worker threads for processing.
+workers = 8
+
+# Define a list of directory names to always exclude from scanning.
+# This is useful for ignoring common development or temporary folders.
+exclude_dirs = [
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    ".git",
+    "build",
+    "dist",
+]
+```
