@@ -1,6 +1,7 @@
 # walker/main.py
 import concurrent.futures
 import queue
+import sys
 import threading
 from pathlib import Path
 from typing import Optional, Tuple
@@ -15,6 +16,15 @@ from .models import FileMetadata
 # A queue to hold file processing results before they are written to the DB.
 results_queue = queue.Queue()
 sentinel = object()  # A signal to stop the writer thread.
+
+# Default directories to exclude on Windows when scanning a root drive.
+# These are case-insensitive.
+DEFAULT_WINDOWS_EXCLUDES = [
+    "windows",
+    "program files",
+    "program files (x86)",
+    "$recycle.bin",
+]
 
 def db_writer_worker(db_session: Session):
     """
@@ -49,7 +59,8 @@ def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
 @click.command()
 @click.argument('root_paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
 @click.option('--workers', default=3, help='Number of processor workers.')
-def run_indexer(root_paths: Tuple[Path, ...], workers: int):
+@click.option('--exclude', 'exclude_paths', multiple=True, type=click.Path(), help='Directory name to exclude. Can be used multiple times.')
+def run_indexer(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, ...]):
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
@@ -63,11 +74,21 @@ def run_indexer(root_paths: Tuple[Path, ...], workers: int):
     writer_thread = threading.Thread(target=db_writer_worker, args=(db_session,))
     writer_thread.start()
 
+    # Prepare exclusion list
+    final_exclude_list = {path.lower() for path in exclude_paths}
+    is_windows_root_scan = sys.platform == "win32" and any(
+        p.parent == p for p in root_paths
+    )
+
+    if is_windows_root_scan:
+        click.echo("Windows root drive scan detected. Applying default exclusions.")
+        final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
+
     click.echo(f"Scanning directories: {', '.join(map(str, root_paths))}...")
     
     all_file_paths = []
     for path in root_paths:
-        all_file_paths.extend(scanner.scan_directory(path))
+        all_file_paths.extend(scanner.scan_directory(path, final_exclude_list))
     file_paths = list(set(all_file_paths)) # Use set to remove duplicates if paths overlap
     click.echo(f"Found {len(file_paths)} files to process.")
 

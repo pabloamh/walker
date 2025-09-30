@@ -1,10 +1,12 @@
 # walker/file_processor.py
+import email
 import hashlib
 import json
 import os
 from typing import Optional, Tuple, Any, Union
 
 import imagehash
+from bs4 import BeautifulSoup
 import magic
 import pymupdf
 from PIL import Image, ExifTags
@@ -63,18 +65,48 @@ class FileProcessor:
         except Exception:
             return None, None
 
-    def _process_document(self) -> Optional[str]:
-        """Extracts text content from a document."""
+    def _extract_text_content(self) -> Optional[str]:
+        """Extracts text content from various file types based on MIME type."""
         content = ""
         try:
-            if self.mime_type and "pdf" in self.mime_type:
+            if not self.mime_type:
+                return None
+
+            # Plain text files (and source code, markdown, etc.)
+            if self.mime_type.startswith("text/plain"):
+                # Read with UTF-8, ignore errors for robustness against malformed files
+                content = self.file_path.read_text(encoding="utf-8", errors="ignore")
+
+            # HTML files
+            elif self.mime_type == "text/html":
+                with self.file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    soup = BeautifulSoup(f, "lxml")
+                    content = soup.get_text(separator="\n", strip=True)
+
+            # PDF documents
+            elif self.mime_type == "application/pdf":
                 with pymupdf.open(self.file_path) as doc:
                     for page in doc:
                         content += page.get_text()
-            elif self.mime_type and "openxmlformats-officedocument.wordprocessingml.document" in self.mime_type:
+
+            # Microsoft Word documents
+            elif self.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
                 doc = Document(self.file_path)
                 for para in doc.paragraphs:
                     content += para.text + "\n"
+
+            # Email messages
+            elif self.mime_type == "message/rfc822":
+                with self.file_path.open("rb") as f:
+                    msg = email.message_from_bytes(f.read())
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                # Decode payload, ignoring errors
+                                content += part.get_payload(decode=True).decode(errors="ignore")
+                    elif msg.get_content_type() == "text/plain":
+                        content = msg.get_payload(decode=True).decode(errors="ignore")
+
             return content.strip() if content else None
         except Exception:
             return None
@@ -105,8 +137,9 @@ class FileProcessor:
                     p_hash, exif = self._process_image()
                     metadata_kwargs["perceptual_hash"] = p_hash
                     metadata_kwargs["exif_data"] = exif
-                elif self.mime_type.startswith("application"):
-                    metadata_kwargs["content"] = self._process_document()
+                
+            # For any text-based format, try to extract content.
+            metadata_kwargs["content"] = self._extract_text_content()
 
             return FileMetadata(**metadata_kwargs)
         except (IOError, PermissionError) as e:

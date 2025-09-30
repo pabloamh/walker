@@ -18,7 +18,8 @@ dependencies = [
     "sqlalchemy (>=2.0.43,<3.0.0)",
     "tdqm (>=0.0.1,<0.0.2)",
     "imagehash (>=4.3.2,<5.0.0)",
-    "attrs (>=25.3.0,<26.0.0)"
+    "attrs (>=25.3.0,<26.0.0)",
+    "beautifulsoup4 (>=4.14.2,<5.0.0)"
 ]
 
 [tool.poetry]
