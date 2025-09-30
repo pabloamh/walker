@@ -23,6 +23,9 @@ The application is built with a multi-threaded architecture to process files con
 - **Command-Line Interface**: Easy-to-use CLI built with Click.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
+- **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
+- **PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII).
+- **Reporting**: Includes commands to find duplicate files, textually similar documents, and summarize disk usage.
 
 ## Installation
 
@@ -33,6 +36,7 @@ This project uses Poetry for dependency management.
     -   Poetry
     -   `libmagic`: This is required by the `python-magic` library.
     -   `mediainfo`: This is required for video metadata extraction.
+    -   A `spaCy` model for PII detection.
 
     On Debian/Ubuntu, you can install `libmagic` with:
     ```bash
@@ -47,6 +51,12 @@ This project uses Poetry for dependency management.
     ```bash
     brew install libmagic mediainfo
     ```
+
+    After installing the Python dependencies, you must also download the English language model for `spaCy`:
+    ```bash
+    poetry run python -m spacy download en_core_web_lg
+    ```
+
 
 2.  **Clone the repository**:
     ```bash
@@ -70,6 +80,7 @@ To scan a directory and build or update your index, use the `index` command.
 
 ```bash
 poetry run python -m walker.main index <ROOT_PATH_1> [ROOT_PATH_2] ... [OPTIONS]
+```
 
 **Arguments:**
 -   `ROOT_PATH`: One or more directories to start scanning from.

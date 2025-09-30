@@ -24,6 +24,7 @@ The application is built with a multi-threaded architecture to process files con
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 - **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
+- **Semantic Search**: Performs powerful, meaning-based searches on file content.
 - **PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII).
 - **Reporting**: Includes commands to find duplicate files, textually similar documents, and summarize disk usage.
 - **Configuration File**: Uses a `walker.toml` file for persistent settings.
@@ -97,6 +98,72 @@ poetry run python -m walker.main index ~/Documents/my_files --workers 8
 ```
 
 The application will create a `file_indexer.db` file in the project's root directory containing the metadata of all the processed files.
+
+### Reporting and Analysis
+
+Once your index is built, you can run reports to find duplicates, analyze your data, and perform searches.
+
+#### Find Identical Files
+
+This command finds all files that are bit-for-bit identical by comparing their SHA-256 hashes. It will identify the oldest file in each set as the "Source".
+
+```bash
+poetry run python -m walker.main find-dupes
+```
+
+#### Find Similar Images
+
+This command finds images that are visually identical or similar. By default, it finds exact duplicates. Use the `--threshold` to find similar images (a lower number is stricter).
+
+```bash
+# Find exact duplicates
+poetry run python -m walker.main find-image-dupes
+
+# Find very similar images (e.g., different resolutions or minor edits)
+poetry run python -m walker.main find-image-dupes --threshold 4
+```
+
+#### Find Similar Text
+
+This command uses AI model embeddings to find documents with similar text content. You can adjust the strictness with the `--threshold` option (1.0 is nearly identical, 0.8 is loosely related).
+
+```bash
+# Find documents that are at least 95% similar
+poetry run python -m walker.main find-similar-text --threshold 0.95
+```
+
+#### Semantic Search
+
+Performs a powerful semantic search across the content of all indexed text files. This finds files based on meaning, not just keywords.
+
+```bash
+# Search for a concept and get the top 5 results
+poetry run python -m walker.main search "financial results for the last quarter" --limit 5
+```
+
+#### List Largest Files
+
+This command lists the largest files in your index, helping you identify what is consuming the most disk space.
+
+```bash
+poetry run python -m walker.main largest-files --limit 25
+```
+
+#### Summarize by File Type
+
+This command provides a summary of all indexed files, grouped by their type, showing the count and total size for each.
+
+```bash
+poetry run python -m walker.main type-summary
+```
+
+#### List Files with PII
+
+This command lists all files that were flagged as potentially containing Personally Identifiable Information (PII) during the indexing process.
+
+```bash
+poetry run python -m walker.main list-pii-files
+```
 
 ## Configuration
 

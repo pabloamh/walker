@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import click
+import imagehash
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -205,8 +206,9 @@ def find_dupes():
         db_session.close()
 
 @cli.command(name="find-image-dupes")
-def find_image_dupes():
-    """Finds visually identical images based on their perceptual hash."""
+@click.option('--threshold', default=0, type=int, help='Similarity threshold (0-64). 0 finds exact duplicates.')
+def find_image_dupes(threshold: int):
+    """Finds visually identical or similar images based on perceptual hash."""
     db_session = database.SessionLocal()
     try:
         click.echo("Querying for duplicate images by perceptual hash...")
@@ -299,6 +301,55 @@ def find_similar_text(threshold: float):
                         click.echo(paths[idx])
                         processed_indices.add(idx)
                     group_id += 1
+    finally:
+        db_session.close()
+
+@cli.command(name="search")
+@click.argument('query_text', nargs=-1)
+@click.option('--limit', default=10, type=int, help='Number of results to return.')
+def search(query_text: Tuple[str, ...], limit: int):
+    """
+    Performs a semantic search for files based on text content.
+    
+    QUERY_TEXT: The text to search for.
+    """
+    if not query_text:
+        click.echo("Error: Please provide a search query.", err=True)
+        return
+
+    full_query = " ".join(query_text)
+    db_session = database.SessionLocal()
+    try:
+        click.echo(f"Searching for files with content similar to: '{full_query}'")
+
+        # This is a simplified implementation. For larger databases, consider
+        # a dedicated vector search index like FAISS.
+        from .file_processor import embedding_model
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        # 1. Generate embedding for the user's query
+        query_embedding = embedding_model.encode([full_query])
+
+        # 2. Fetch all file embeddings from the database
+        results = db_session.query(models.FileIndex.path, models.FileIndex.content_embedding).filter(
+            models.FileIndex.content_embedding.isnot(None)
+        ).all()
+
+        if not results:
+            click.echo("No text files with embeddings found in the index.")
+            return
+
+        paths = [r.path for r in results]
+        file_embeddings = np.array([np.frombuffer(r.content_embedding, dtype=np.float32) for r in results])
+
+        # 3. Calculate similarity and rank results
+        similarities = cosine_similarity(query_embedding, file_embeddings)[0]
+        top_indices = np.argsort(similarities)[-limit:][::-1]
+
+        click.echo(f"\n--- Top {limit} results ---")
+        for i in top_indices:
+            click.echo(f"Score: {similarities[i]:.4f} | {paths[i]}")
+
     finally:
         db_session.close()
 
