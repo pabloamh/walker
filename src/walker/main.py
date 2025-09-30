@@ -1,5 +1,6 @@
 # walker/main.py
 import concurrent.futures
+import json
 import queue
 import sys
 import threading
@@ -190,9 +191,15 @@ def find_dupes():
         
         for i, (hash_val, count) in enumerate(duplicate_hashes, 1):
             click.echo(f"\n--- Set {i} ({count} files, hash: {hash_val[:12]}...) ---")
-            files = db_session.query(models.FileIndex).filter_by(crypto_hash=hash_val).all()
-            for file in files:
-                click.echo(file.path)
+            files = db_session.query(models.FileIndex).filter_by(crypto_hash=hash_val).order_by(models.FileIndex.mtime).all()
+            
+            # The first file after sorting by mtime is the "source"
+            source_file = files[0]
+            click.echo(click.style(f"  Source: {source_file.path}", fg="green"))
+
+            # List the other duplicates
+            for file in files[1:]:
+                click.echo(f"  - Dup:  {file.path}")
 
     finally:
         db_session.close()
@@ -221,8 +228,26 @@ def find_image_dupes():
         for i, (phash_val, count) in enumerate(duplicate_phashes, 1):
             click.echo(f"\n--- Set {i} ({count} images, p-hash: {phash_val}) ---")
             files = db_session.query(models.FileIndex).filter_by(perceptual_hash=phash_val).all()
-            for file in files:
-                click.echo(file.path)
+
+            def sort_key(file: models.FileIndex):
+                resolution = 0
+                if file.exif_data:
+                    try:
+                        exif = json.loads(file.exif_data)
+                        # Use .get() for safety in case keys are missing
+                        width = exif.get('ImageWidth', exif.get('width', 0))
+                        height = exif.get('ImageHeight', exif.get('height', 0))
+                        resolution = int(width) * int(height)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # Sort by highest resolution, then by largest file size
+                return (-resolution, -file.size_bytes)
+
+            files.sort(key=sort_key)
+            
+            click.echo(click.style(f"  Source: {files[0].path}", fg="green"))
+            for file in files[1:]:
+                click.echo(f"  - Dup:  {file.path}")
     finally:
         db_session.close()
 
@@ -328,6 +353,29 @@ def type_summary():
         click.echo("-" * 86)
         for mime_type, count, total_size in summary:
             click.echo(f"{str(mime_type):<60} | {count:>10} | {format_bytes(total_size):>12}")
+    finally:
+        db_session.close()
+
+@cli.command(name="list-pii-files")
+def list_pii_files():
+    """Lists all files that have been flagged for containing potential PII."""
+    db_session = database.SessionLocal()
+    try:
+        click.echo("Querying for files flagged with potential PII...")
+        
+        files = (
+            db_session.query(models.FileIndex)
+            .filter(models.FileIndex.has_pii == True)
+            .order_by(models.FileIndex.path)
+            .all()
+        )
+
+        if not files:
+            click.echo("No files containing potential PII were found.")
+            return
+
+        for file in files:
+            click.echo(file.path)
     finally:
         db_session.close()
 

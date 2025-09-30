@@ -14,6 +14,7 @@ import pymupdf
 from pymediainfo import MediaInfo
 from tinytag import TinyTag
 from sentence_transformers import SentenceTransformer
+from presidio_analyzer import AnalyzerEngine
 from PIL import Image, ExifTags
 from docx import Document
 
@@ -24,6 +25,11 @@ from .models import FileMetadata
 # Load the model once when the module is imported. This is crucial for performance,
 # as it prevents reloading the model for every file in a multi-processing environment.
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+
+# Initialize the PII analyzer engine. This is also loaded once for performance.
+# It will use a default spaCy model ('en_core_web_lg') if available.
+pii_analyzer = AnalyzerEngine()
+
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
@@ -223,6 +229,7 @@ class FileProcessor:
                 "content": None,
                 "exif_data": None,
                 "content_embedding": None,
+                "has_pii": None,
             }
 
             if self.mime_type:
@@ -248,6 +255,11 @@ class FileProcessor:
             if metadata_kwargs["content"]:
                 embedding = embedding_model.encode(metadata_kwargs["content"])
                 metadata_kwargs["content_embedding"] = embedding.tobytes()
+                
+                # Analyze content for PII
+                pii_results = pii_analyzer.analyze(text=metadata_kwargs["content"], language='en')
+                metadata_kwargs["has_pii"] = bool(pii_results)
+
 
             return FileMetadata(**metadata_kwargs)
         except (IOError, PermissionError) as e:

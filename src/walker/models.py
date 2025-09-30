@@ -2,7 +2,7 @@
 from typing import Optional
 
 import attrs
-from sqlalchemy import BLOB, Column, Integer, String, BigInteger
+from sqlalchemy import BLOB, Boolean, Column, Integer, String, BigInteger
 from sqlalchemy.orm import declarative_base
 
 # --- Attrs class for data processing ---
@@ -21,6 +21,7 @@ class FileMetadata:
     content: Optional[str]
     exif_data: Optional[str]
     content_embedding: Optional[bytes]
+    has_pii: Optional[bool]
 
 
 # --- SQLAlchemy ORM class for database persistence ---
@@ -40,6 +41,7 @@ class FileIndex(Base):
     content = Column(String, nullable=True)           # For documents
     exif_data = Column(String, nullable=True)         # For image EXIF data
     content_embedding = Column(BLOB, nullable=True)   # For text embeddings
+    has_pii = Column(Boolean, nullable=True)          # For PII detection
 
     @classmethod
     def from_metadata(cls, metadata: FileMetadata) -> "FileIndex":
