@@ -9,11 +9,27 @@ import imagehash
 from bs4 import BeautifulSoup
 import magic
 import pymupdf
+from pymediainfo import MediaInfo
+from tinytag import TinyTag
 from PIL import Image, ExifTags
 from docx import Document
 
 from pathlib import Path
 from .models import FileMetadata
+
+# Default filenames and extensions to exclude from processing.
+# These are checked case-insensitively.
+DEFAULT_EXCLUDED_FILENAMES = {
+    ".ds_store",
+    "thumbs.db",
+}
+DEFAULT_EXCLUDED_EXTENSIONS = {
+    ".swp",  # Vim swap file
+    ".swo",  # Vim swap file
+    ".tmp",  # Temporary file
+    ".part", # Partial download
+    ".crdownload", # Chrome partial download
+}
 
 class FileProcessor:
     """
@@ -64,6 +80,48 @@ class FileProcessor:
                 return p_hash, exif
         except Exception:
             return None, None
+
+    def _process_video(self) -> Optional[str]:
+        """Extracts metadata from a video file."""
+        try:
+            media_info = MediaInfo.parse(self.file_path)
+            video_track = next((t for t in media_info.tracks if t.track_type == 'Video'), None)
+            audio_track = next((t for t in media_info.tracks if t.track_type == 'Audio'), None)
+
+            if not video_track:
+                return None
+
+            video_data = {
+                "width": video_track.width,
+                "height": video_track.height,
+                "duration_ms": video_track.duration,
+                "frame_rate": video_track.frame_rate,
+                "codec": video_track.codec_id,
+                "format": video_track.format,
+                "audio_codec": audio_track.format if audio_track else None,
+            }
+            return json.dumps(video_data, default=str)
+        except Exception:
+            return None
+
+    def _process_audio(self) -> Optional[str]:
+        """Extracts metadata from an audio file."""
+        try:
+            tag = TinyTag.get(self.file_path)
+            audio_data = {
+                "artist": tag.artist,
+                "album": tag.album,
+                "album_artist": tag.albumartist,
+                "title": tag.title,
+                "track": tag.track,
+                "year": tag.year,
+                "duration_s": tag.duration,
+                "genre": tag.genre,
+                "bitrate_kbps": tag.bitrate,
+            }
+            return json.dumps({k: v for k, v in audio_data.items() if v is not None})
+        except Exception:
+            return None
 
     def _extract_text_content(self) -> Optional[str]:
         """Extracts text content from various file types based on MIME type."""
@@ -116,6 +174,13 @@ class FileProcessor:
         Processes the file and returns a FileMetadata object.
         """
         try:
+            # --- Early exit for excluded file types ---
+            if self.file_path.name.lower() in DEFAULT_EXCLUDED_FILENAMES:
+                return None
+            if self.file_path.suffix.lower() in DEFAULT_EXCLUDED_EXTENSIONS:
+                return None
+
+
             if not self.file_path.is_file():
                 return None
 
@@ -137,6 +202,12 @@ class FileProcessor:
                     p_hash, exif = self._process_image()
                     metadata_kwargs["perceptual_hash"] = p_hash
                     metadata_kwargs["exif_data"] = exif
+                elif self.mime_type.startswith("video"):
+                    # For videos, we store media metadata in the 'exif_data' field.
+                    metadata_kwargs["exif_data"] = self._process_video()
+                elif self.mime_type.startswith("audio"):
+                    # For audio, we also store media metadata in the 'exif_data' field.
+                    metadata_kwargs["exif_data"] = self._process_audio()
                 
             # For any text-based format, try to extract content.
             metadata_kwargs["content"] = self._extract_text_content()

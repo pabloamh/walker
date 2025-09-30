@@ -15,10 +15,12 @@ The application is built with a multi-threaded architecture to process files con
 - **Specialized Content Extraction**:
     - **Images**: Generates perceptual hashes (p-hash) for similarity detection and extracts EXIF metadata.
     - **Documents**: Extracts text content from PDF (`.pdf`) and Microsoft Word (`.docx`) files.
+    - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
 - **Command-Line Interface**: Easy-to-use CLI built with Click.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
+- **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 
 ## Installation
 

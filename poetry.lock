@@ -1127,6 +1127,27 @@ typing = ["typing-extensions ; python_version < \"3.10\""]
 xmp = ["defusedxml"]
 
 [[package]]
+name = "pymediainfo"
+version = "7.0.1"
+description = "A Python wrapper for the MediaInfo library."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pymediainfo-7.0.1-py3-none-macosx_10_10_universal2.whl", hash = "sha256:286f3bf6299be0997093254e0f371855bc5cf2aaf8641d19455a011e3ee3a84d"},
+    {file = "pymediainfo-7.0.1-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:3648e2379fa67bd02433d1e28c707df3a53834dd480680615a9fefd2266f1182"},
+    {file = "pymediainfo-7.0.1-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:cde98112f1ce486589b17a12e5da42085faea996224f7c67fa45b8c1dca719c6"},
+    {file = "pymediainfo-7.0.1-py3-none-win32.whl", hash = "sha256:01bcaf82b72cefbf4b96f13b2547e1b2e0e734bab7173d7c33f7f01acc07c98b"},
+    {file = "pymediainfo-7.0.1-py3-none-win_amd64.whl", hash = "sha256:13224fa7590e198763b8baf072e704ea81d334e71aa32a469091460e243893c7"},
+    {file = "pymediainfo-7.0.1.tar.gz", hash = "sha256:0d5df59ecc615e24c56f303b8f651579c6accab7265715e5d429186d7ba21514"},
+]
+
+[package.extras]
+dev = ["black", "flake8", "ipython", "isort", "mypy (>=1.0)", "pylint"]
+docs = ["alabaster", "myst-parser", "setuptools_scm", "sphinx"]
+tests = ["pytest (>=6)", "pytest-cov", "pytest-xdist"]
+
+[[package]]
 name = "pymupdf"
 version = "1.26.4"
 description = "A high performance Python library for data extraction, analysis, conversion & manipulation of PDF (and other) documents."
@@ -1835,6 +1856,21 @@ files = [
 ]
 
 [[package]]
+name = "tinytag"
+version = "2.1.2"
+description = "Read audio file metadata"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "tinytag-2.1.2-py3-none-any.whl", hash = "sha256:1a6b7b19c59ac4846b2446ec7a85cfaa17fbee6970592eaa5926702c261bad69"},
+    {file = "tinytag-2.1.2.tar.gz", hash = "sha256:564e573e308d9fa78432493b4987fca1f84fb1f2ce29c586fc54629155e4fca0"},
+]
+
+[package.extras]
+tests = ["coverage", "mypy", "pycodestyle", "pylint", "pyright"]
+
+[[package]]
 name = "tokenizers"
 version = "0.22.1"
 description = ""
@@ -2084,4 +2120,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "bf3d81fc4466493968c679f22436a2da3da8bf2115c078623ab13a5a370e7af7"
+content-hash = "bba149a7e5ff88200d029f9e6755221c71c2ebdeac0c350610bacdc3fcedf348"

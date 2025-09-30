@@ -15,10 +15,13 @@ The application is built with a multi-threaded architecture to process files con
 - **Specialized Content Extraction**:
     - **Images**: Generates perceptual hashes (p-hash) for similarity detection and extracts EXIF metadata.
     - **Documents**: Extracts text content from PDF (`.pdf`) and Microsoft Word (`.docx`) files.
+    - **Videos**: Extracts media metadata like resolution, duration, and codecs.
+    - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
 - **Command-Line Interface**: Easy-to-use CLI built with Click.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
+- **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 
 ## Installation
 
@@ -28,15 +31,20 @@ This project uses Poetry for dependency management.
     -   Python 3.10+
     -   Poetry
     -   `libmagic`: This is required by the `python-magic` library.
+    -   `mediainfo`: This is required for video metadata extraction.
 
     On Debian/Ubuntu, you can install `libmagic` with:
     ```bash
     sudo apt-get update && sudo apt-get install libmagic1
     ```
+    And `mediainfo` with:
+    ```bash
+    sudo apt-get update && sudo apt-get install mediainfo
+    ```
 
     On macOS (using Homebrew):
     ```bash
-    brew install libmagic
+    brew install libmagic mediainfo
     ```
 
 2.  **Clone the repository**:
