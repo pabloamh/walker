@@ -33,7 +33,6 @@ The application is built with a multi-threaded architecture to process files con
 
 Before you begin, ensure you have the following installed on your system:
 
--   **Python 3.10+**
 -   **Python 3.11+**
 -   **Poetry** for managing Python dependencies.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
