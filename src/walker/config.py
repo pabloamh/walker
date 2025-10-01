@@ -16,6 +16,7 @@ class Config:
     """Structured configuration for the walker application."""
     workers: int = 3
     exclude_dirs: List[str] = attrs.field(factory=list)
+    scan_dirs: List[str] = attrs.field(factory=list)
 
 
 def load_config() -> Config:
@@ -36,4 +37,5 @@ def load_config() -> Config:
     return Config(
         workers=walker_config.get("workers", 3),
         exclude_dirs=walker_config.get("exclude_dirs", []),
+        scan_dirs=walker_config.get("scan_dirs", []),
     )

@@ -89,14 +89,14 @@ def cli():
     pass
 
 @cli.command(name="index")
-@click.argument('root_paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.argument('root_paths', nargs=-1, required=False, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
 @click.option('--workers', default=3, help='Number of processor workers.')
 @click.option('--exclude', 'exclude_paths', multiple=True, type=click.Path(), help='Directory name to exclude. Can be used multiple times.')
 def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, ...]):
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
-    ROOT_PATHS: One or more directories to start scanning from.
+    If ROOT_PATHS are not provided, it will use 'scan_dirs' from walker.toml.
     """
     click.echo(f"Initializing database...")
     app_config = config.load_config()
@@ -108,6 +108,22 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     writer_thread = threading.Thread(target=db_writer_worker, args=(db_session,))
     writer_thread.start()
 
+    # --- Determine which paths to scan ---
+    final_root_paths = root_paths
+    if not final_root_paths:
+        if app_config.scan_dirs:
+            click.echo("No paths provided. Using 'scan_dirs' from walker.toml.")
+            # Convert string paths from config to Path objects and validate them
+            validated_paths = []
+            for p_str in app_config.scan_dirs:
+                p = Path(p_str).expanduser().resolve()
+                if p.is_dir():
+                    validated_paths.append(p)
+                else:
+                    click.echo(click.style(f"Warning: Path '{p_str}' from config not found or not a directory. Skipping.", fg="yellow"))
+            final_root_paths = tuple(validated_paths)
+
+
     # --- Merge CLI arguments and config file settings ---
     # CLI options take precedence over the config file.
     final_workers = workers if workers != 3 else app_config.workers
@@ -115,7 +131,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     # Prepare exclusion list
     final_exclude_list = {path.lower() for path in exclude_paths}
     is_windows_root_scan = sys.platform == "win32" and any(
-        p.parent == p for p in root_paths
+        p.parent == p for p in final_root_paths
     )
 
     if is_windows_root_scan:
@@ -123,11 +139,15 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
         final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
     final_exclude_list.update({d.lower() for d in app_config.exclude_dirs})
 
+    if not final_root_paths:
+        click.echo(click.style("Error: No scan paths provided on the command line or in walker.toml.", fg="red"), err=True)
+        sys.exit(1)
+
     click.echo(f"Starting scan with {final_workers} workers...")
     
     all_file_paths = []
     with tqdm(desc="Scanning directories", unit=" files") as pbar:
-        for path in root_paths:
+        for path in final_root_paths:
             for file_path in scanner.scan_directory(path, final_exclude_list):
                 all_file_paths.append(file_path)
                 pbar.update(1)
@@ -142,7 +162,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     
     file_paths_to_process = []
     for path in tqdm(all_file_paths, desc="Filtering files"):
-        path_str = str(path)
+        path_str = str(path.resolve())
         current_mtime = path.stat().st_mtime
         if path_str not in existing_files or current_mtime > existing_files[path_str]:
             file_paths_to_process.append(path)
