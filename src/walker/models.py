@@ -2,7 +2,7 @@
 from typing import Optional
 
 import attrs
-from sqlalchemy import BLOB, Boolean, Column, Integer, String, BigInteger
+from sqlalchemy import BLOB, Boolean, Column, Float, Integer, String, BigInteger, JSON
 from sqlalchemy.orm import declarative_base
 
 # --- Attrs class for data processing ---
@@ -34,12 +34,12 @@ class FileIndex(Base):
     path = Column(String, nullable=False, unique=True)
     filename = Column(String, nullable=False)
     size_bytes = Column(BigInteger, nullable=False)
-    mtime = Column(BigInteger, nullable=False)
+    mtime = Column(Float, nullable=False)
     crypto_hash = Column(String(64), nullable=False)  # For SHA-256
     mime_type = Column(String, nullable=True)
     perceptual_hash = Column(String, nullable=True)   # For images
     content = Column(String, nullable=True)           # For documents
-    exif_data = Column(String, nullable=True)         # For image EXIF data
+    exif_data = Column(JSON, nullable=True)           # For image/media metadata
     content_embedding = Column(BLOB, nullable=True)   # For text embeddings
     has_pii = Column(Boolean, nullable=True)          # For PII detection
 

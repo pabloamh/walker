@@ -1,13 +1,12 @@
 # walker/main.py
 import concurrent.futures
-import json
 import queue
 import sys
 import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
-import click
+import click, attrs
 import imagehash
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -42,39 +41,42 @@ def format_bytes(size: int) -> str:
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
 
-def db_writer_worker(db_session: Session, batch_size: int = 100):
+def db_writer_worker(db_session: Session, batch_size: int = 500):
     """
     A dedicated worker that pulls results from the queue and writes them to the DB.
-    Writes are batched to improve performance.
+    Uses a batched "upsert" strategy for high performance with SQLite.
     """
     print("DB writer worker started.")
-    new_files_count = 0
-    updated_files_count = 0
     batch = []
+    total_processed = 0
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
     while True:
         item: Optional[FileMetadata] = results_queue.get()
-        if item is sentinel: # End of queue
-            if batch: # Commit any remaining items in the batch
-                db_session.bulk_update_mappings(models.FileIndex, batch)
+        if item is sentinel:  # End of queue
+            if batch:
+                stmt = sqlite_insert(models.FileIndex).values(batch)
+                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+                db_session.execute(stmt)
                 db_session.commit()
-                updated_files_count += len(batch)
+                total_processed += len(batch)
             break
 
         if item:
-            # This is an update, so we add it to the batch
             batch.append(attrs.asdict(item))
             if len(batch) >= batch_size:
-                db_session.bulk_update_mappings(models.FileIndex, batch)
+                stmt = sqlite_insert(models.FileIndex).values(batch)
+                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+                db_session.execute(stmt)
                 db_session.commit()
-                updated_files_count += len(batch)
+                total_processed += len(batch)
                 batch.clear()
-        elif item is not None: # A new file to be added
-            # For simplicity, we'll handle new files individually for now
-            # A more advanced implementation could batch these as well
-            new_files_count += 1
+
         results_queue.task_done()
-    
-    print(f"DB writer finished. Updated {updated_files_count} and added {new_files_count} files.")
+
+    print(f"DB writer finished. Processed {total_processed} files.")
 
 def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
     """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
@@ -160,20 +162,24 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
         p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime)
     }
     
-    file_paths_to_process = []
+    files_to_process = []
     for path in tqdm(all_file_paths, desc="Filtering files"):
         path_str = str(path.resolve())
         current_mtime = path.stat().st_mtime
-        if path_str not in existing_files or current_mtime > existing_files[path_str]:
-            file_paths_to_process.append(path)
+        if path_str not in existing_files:
+            files_to_process.append(("new", path))
+        elif current_mtime > existing_files[path_str]:
+            files_to_process.append(("updated", path))
 
-    file_paths = list(set(file_paths_to_process)) # Remove duplicates
-    click.echo(f"Found {len(file_paths)} new or modified files to process.")
+    click.echo(f"Found {len(files_to_process)} new or modified files to process.")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=final_workers) as executor:
-        future_to_path = {executor.submit(process_file_wrapper, path): path for path in file_paths}
+        # Submit jobs with their status ('new' or 'updated')
+        future_to_path = {
+            executor.submit(process_file_wrapper, path): path for _, path in files_to_process
+        }
 
-        progress_bar = tqdm(concurrent.futures.as_completed(future_to_path), total=len(file_paths), desc="Processing files")
+        progress_bar = tqdm(concurrent.futures.as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
         for future in progress_bar:
             try:
                 result = future.result()
@@ -232,44 +238,55 @@ def find_image_dupes(threshold: int):
     db_session = database.SessionLocal()
     try:
         click.echo("Querying for duplicate images by perceptual hash...")
-        
-        duplicate_phashes = (
-            db_session.query(models.FileIndex.perceptual_hash, func.count(models.FileIndex.id).label("count"))
+
+        # Fetch all images with a perceptual hash
+        images = (
+            db_session.query(models.FileIndex.path, models.FileIndex.perceptual_hash)
             .filter(models.FileIndex.perceptual_hash.isnot(None))
-            .group_by(models.FileIndex.perceptual_hash)
-            .having(func.count(models.FileIndex.id) > 1)
             .all()
         )
 
-        if not duplicate_phashes:
-            click.echo("No duplicate images found.")
+        if len(images) < 2:
+            click.echo("Not enough images in the index to compare.")
             return
 
-        click.echo(f"Found {len(duplicate_phashes)} sets of duplicate images.")
-        
-        for i, (phash_val, count) in enumerate(duplicate_phashes, 1):
-            click.echo(f"\n--- Set {i} ({count} images, p-hash: {phash_val}) ---")
-            files = db_session.query(models.FileIndex).filter_by(perceptual_hash=phash_val).all()
+        click.echo(f"Comparing {len(images)} images...")
 
-            def sort_key(file: models.FileIndex):
-                resolution = 0
-                if file.exif_data:
-                    try:
-                        exif = json.loads(file.exif_data)
-                        # Use .get() for safety in case keys are missing
-                        width = exif.get('ImageWidth', exif.get('width', 0))
-                        height = exif.get('ImageHeight', exif.get('height', 0))
-                        resolution = int(width) * int(height)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                # Sort by highest resolution, then by largest file size
-                return (-resolution, -file.size_bytes)
+        # Convert phash strings to imagehash objects
+        hashes = {path: imagehash.hex_to_hash(phash) for path, phash in images}
+        paths = list(hashes.keys())
 
-            files.sort(key=sort_key)
+        # --- Grouping similar images ---
+        groups = []
+        processed_indices = set()
+
+        for i in range(len(paths)):
+            if i in processed_indices:
+                continue
+
+            current_group = {paths[i]}
+            processed_indices.add(i)
+
+            for j in range(i + 1, len(paths)):
+                if j in processed_indices:
+                    continue
+                
+                # Compare perceptual hashes
+                if hashes[paths[i]] - hashes[paths[j]] <= threshold:
+                    current_group.add(paths[j])
+                    processed_indices.add(j)
             
-            click.echo(click.style(f"  Source: {files[0].path}", fg="green"))
-            for file in files[1:]:
-                click.echo(f"  - Dup:  {file.path}")
+            if len(current_group) > 1:
+                groups.append(sorted(list(current_group)))
+
+        if not groups:
+            click.echo("No similar images found with the given threshold.")
+            return
+
+        for i, group in enumerate(groups, 1):
+            click.echo(f"\n--- Similar Group {i} ---")
+            for path in group:
+                click.echo(f"  - {path}")
     finally:
         db_session.close()
 
@@ -307,20 +324,35 @@ def find_similar_text(threshold: float):
             click.echo("No similar text files found above the threshold.")
             return
 
-        # Group similar files
-        # This is a simple grouping method; more advanced clustering could be used
-        processed_indices = set()
-        group_id = 1
+        # --- Grouping using a Disjoint Set Union (DSU) data structure ---
+        parent = list(range(len(paths)))
+        def find(i):
+            if parent[i] == i:
+                return i
+            parent[i] = find(parent[i])
+            return parent[i]
+
+        def union(i, j):
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_j] = root_i
+
         for i, j in similar_pairs:
-            if i not in processed_indices or j not in processed_indices:
-                # Find all items similar to the first item in the pair
-                similar_to_i = {idx for idx, sim in enumerate(similarity_matrix[i]) if sim >= threshold}
-                if not similar_to_i.issubset(processed_indices):
-                    click.echo(f"\n--- Similar Group {group_id} ---")
-                    for idx in sorted(list(similar_to_i)):
-                        click.echo(paths[idx])
-                        processed_indices.add(idx)
-                    group_id += 1
+            union(i, j)
+
+        groups = {}
+        for i in range(len(paths)):
+            root = find(i)
+            if root not in groups:
+                groups[root] = []
+            groups[root].append(paths[i])
+
+        for i, group_paths in enumerate(groups.values(), 1):
+            if len(group_paths) > 1:
+                click.echo(f"\n--- Similar Group {i} ---")
+                for path in sorted(group_paths):
+                    click.echo(f"  - {path}")
     finally:
         db_session.close()
 

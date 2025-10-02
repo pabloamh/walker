@@ -157,10 +157,11 @@ class FileProcessor:
 
     def _extract_text_content(self) -> Optional[str]:
         """Extracts text content from various file types based on MIME type."""
-        content = ""
         try:
             if not self.mime_type:
                 return None
+
+            content = ""
 
             # Plain text files (and source code, markdown, etc.)
             if self.mime_type.startswith("text/plain"):
