@@ -24,51 +24,91 @@ The application is built with a multi-threaded architecture to process files con
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 - **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
+- **Semantic Search**: Performs powerful, meaning-based searches on file content.
 - **PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII).
 - **Reporting**: Includes commands to find duplicate files, textually similar documents, and summarize disk usage.
+- **Configuration File**: Uses a `walker.toml` file for persistent settings.
+
+## Prerequisites
+
+This project uses Poetry for dependency management.
+
+Before you begin, ensure you have the following installed on your system:
+
+-   **Python 3.11+**
+-   **Poetry** for managing Python dependencies.
+-   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
+-   **`mediainfo`**: Required for video metadata extraction.
+-   **A `spaCy` model**: Required for Personally Identifiable Information (PII) detection.
+
+### System Dependency Installation
+
+**On Debian/Ubuntu:**
+```bash
+sudo apt-get update && sudo apt-get install libmagic1 mediainfo
+```
+
+**On macOS (using Homebrew):**
+```bash
+brew install libmagic mediainfo
+```
 
 ## Installation
 
 This project uses Poetry for dependency management.
 
-1.  **Prerequisites**:
-    -   Python 3.10+
-    -   Poetry
-    -   `libmagic`: This is required by the `python-magic` library.
-    -   `mediainfo`: This is required for video metadata extraction.
-    -   A `spaCy` model for PII detection.
-
-    On Debian/Ubuntu, you can install `libmagic` with:
-    ```bash
-    sudo apt-get update && sudo apt-get install libmagic1
-    ```
-    And `mediainfo` with:
-    ```bash
-    sudo apt-get update && sudo apt-get install mediainfo
-    ```
-
-    On macOS (using Homebrew):
-    ```bash
-    brew install libmagic mediainfo
-    ```
-
-    After installing the Python dependencies, you must also download the English language model for `spaCy`:
-    ```bash
-    poetry run python -m spacy download en_core_web_lg
-    ```
-
-
-2.  **Clone the repository**:
+1.  **Clone the Repository**:
     ```bash
     git clone <your-repo-url>
     cd walker
     ```
 
-3.  **Install dependencies**:
+2.  **Install Python Dependencies**:
     From the root of the project, run the following command to create a virtual environment and install the required packages:
     ```bash
     poetry install
     ```
+
+3.  **Download the Language Model**:
+    After installing the Python packages, you must also download the English language model required for PII detection:
+    ```bash
+    poetry run python -m spacy download en_core_web_lg
+    ```
+
+## Configuration
+
+For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the directory where you run the command. This is the recommended way to set options you use frequently.
+
+**Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
+
+### Example `walker.toml`
+
+All settings for `walker` must be placed under the `[tool.walker]` section. Here is a comprehensive example:
+
+```toml
+[tool.walker]
+# Set the default number of worker threads for processing.
+workers = 8
+
+# Define a list of directories to scan by default if no paths are
+# provided on the command line. Supports user home directory expansion.
+# scan_dirs = ["~/Documents", "~/Pictures", "/media/archive/work"]
+scan_dirs = []
+
+# Define a list of directory names to always exclude from scanning.
+# This is useful for ignoring common development, temporary, or cache folders.
+exclude_dirs = [
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    ".git",
+    "build",
+    "dist",
+    ".cache",
+    "target", # For Rust projects
+    "*.egg-info"
+]
+```
 
 ## Usage
 
@@ -79,7 +119,7 @@ The application has multiple sub-commands.
 To scan a directory and build or update your index, use the `index` command.
 
 ```bash
-poetry run python -m walker.main index <ROOT_PATH_1> [ROOT_PATH_2] ... [OPTIONS]
+poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
 ```
 
 **Arguments:**

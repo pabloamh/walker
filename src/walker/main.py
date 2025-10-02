@@ -41,11 +41,14 @@ def format_bytes(size: int) -> str:
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
 
-def db_writer_worker(db_session: Session, batch_size: int = 500):
+def db_writer_worker(batch_size: int = 500):
     """
     A dedicated worker that pulls results from the queue and writes them to the DB.
     Uses a batched "upsert" strategy for high performance with SQLite.
+    This function creates its own database session to ensure thread safety.
     """
+    # Each thread needs its own session.
+    db_session = database.SessionLocal()
     print("DB writer worker started.")
     batch = []
     total_processed = 0
@@ -55,27 +58,30 @@ def db_writer_worker(db_session: Session, batch_size: int = 500):
         item: Optional[FileMetadata] = results_queue.get()
         if item is sentinel:  # End of queue
             if batch:
-                stmt = sqlite_insert(models.FileIndex).values(batch)
-                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                db_session.execute(stmt)
-                db_session.commit()
-                total_processed += len(batch)
+                with database.db_lock:
+                    stmt = sqlite_insert(models.FileIndex).values(batch)
+                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+                    db_session.execute(stmt)
+                    db_session.commit()
+                    total_processed += len(batch)
             break
 
         if item:
             batch.append(attrs.asdict(item))
             if len(batch) >= batch_size:
-                stmt = sqlite_insert(models.FileIndex).values(batch)
-                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                db_session.execute(stmt)
-                db_session.commit()
-                total_processed += len(batch)
-                batch.clear()
+                with database.db_lock:
+                    stmt = sqlite_insert(models.FileIndex).values(batch)
+                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+                    db_session.execute(stmt)
+                    db_session.commit()
+                    total_processed += len(batch)
+                    batch.clear()
 
         results_queue.task_done()
 
+    db_session.close()
     print(f"DB writer finished. Processed {total_processed} files.")
 
 def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
@@ -104,10 +110,8 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     app_config = config.load_config()
 
     database.init_db()
-    db_session = database.SessionLocal()
-
     # Start the dedicated database writer thread
-    writer_thread = threading.Thread(target=db_writer_worker, args=(db_session,))
+    writer_thread = threading.Thread(target=db_writer_worker, args=(500,))
     writer_thread.start()
 
     # --- Determine which paths to scan ---
@@ -158,6 +162,8 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     
     # --- Smart Update Logic ---
     click.echo("Checking for new or modified files...")
+    # This session is short-lived and used only for this initial check.
+    db_session = database.SessionLocal()
     existing_files = {
         p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime)
     }
@@ -170,6 +176,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
             files_to_process.append(("new", path))
         elif current_mtime > existing_files[path_str]:
             files_to_process.append(("updated", path))
+    db_session.close()
 
     click.echo(f"Found {len(files_to_process)} new or modified files to process.")
 
@@ -192,7 +199,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
     writer_thread.join()
-    db_session.close()
+
     click.echo("All files have been processed and indexed.")
 
 @cli.command(name="find-dupes")
