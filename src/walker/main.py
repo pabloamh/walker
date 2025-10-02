@@ -2,6 +2,7 @@
 import concurrent.futures
 import queue
 import sys
+import os, sys
 import threading
 from pathlib import Path
 from typing import Optional, Tuple
@@ -106,11 +107,15 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
 
     If ROOT_PATHS are not provided, it will use 'scan_dirs' from walker.toml.
     """
-    click.echo(f"Initializing database...")
+    # Change to the script's directory to reliably find walker.toml and the DB.
+    script_dir = Path(__file__).parent
+    os.chdir(script_dir)
+    click.echo(f"Working directory set to: {script_dir}")
+
     app_config = config.load_config()
 
+    click.echo(f"Initializing database...")
     database.init_db()
-    # Start the dedicated database writer thread
     writer_thread = threading.Thread(target=db_writer_worker, args=(500,))
     writer_thread.start()
 
@@ -195,6 +200,12 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
             except Exception as exc:
                 path = future_to_path[future]
                 click.echo(f"\n'{path}' generated an exception: {exc}", err=True)
+
+    # Wait for all items in the queue to be processed by the writer
+    results_queue.join()
+
+    # Wait for all items in the queue to be processed by the writer
+    results_queue.join()
 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)

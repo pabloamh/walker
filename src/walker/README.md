@@ -78,6 +78,7 @@ This project uses Poetry for dependency management.
 ## Configuration
 
 For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the directory where you run the command. This is the recommended way to set options you use frequently.
+The application will automatically look for this file in its own source directory (`src/walker/`). This is the recommended way to set options you use frequently.
 
 **Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
 
@@ -129,10 +130,18 @@ poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
 -   `--workers INTEGER`: The number of worker threads to use for processing files.
 -   `--exclude TEXT`: Directory name to exclude. Can be used multiple times.
 
-**Example:**
+**Examples:**
+
 ```bash
 # Scan a directory using 8 worker threads
 poetry run python -m walker.main index ~/Documents/my_files --workers 8
+
+# Scan multiple directories at once
+poetry run python -m walker.main index /path/to/photos /path/to/work-docs
+
+# Scan a directory and exclude specific folders by name
+# This will skip any folder named 'backups' or 'temp_folder' it encounters.
+poetry run python -m walker.main index /media/archive --exclude backups --exclude temp_folder
 ```
 
 ### Reporting and Analysis
