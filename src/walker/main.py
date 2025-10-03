@@ -1,6 +1,7 @@
 # walker/main.py
 import concurrent.futures
 import queue
+import logging
 import sys
 import os, sys
 import threading
@@ -16,6 +17,14 @@ import numpy as np
 
 from . import config, database, models, scanner
 from .models import FileMetadata
+
+def setup_logging():
+    """Sets up logging to a file for warnings and errors."""
+    log_file = Path(__file__).parent / "walker.log"
+    # Configure logging to write to a file, appending to it if it exists.
+    # Only messages of level WARNING and above will be logged.
+    logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filename=log_file, filemode='a')
+
 
 # A queue to hold file processing results before they are written to the DB.
 results_queue = queue.Queue()
@@ -110,6 +119,9 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     # Change to the script's directory to reliably find walker.toml and the DB.
     script_dir = Path(__file__).parent
     os.chdir(script_dir)
+
+    setup_logging()
+
     click.echo(f"Working directory set to: {script_dir}")
 
     app_config = config.load_config()
@@ -120,21 +132,23 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     writer_thread.start()
 
     # --- Determine which paths to scan ---
-    final_root_paths = root_paths
-    if not final_root_paths:
-        if app_config.scan_dirs:
-            click.echo("No paths provided. Using 'scan_dirs' from walker.toml.")
-            # Convert string paths from config to Path objects and validate them
-            validated_paths = []
-            for p_str in app_config.scan_dirs:
-                p = Path(p_str).expanduser().resolve()
-                if p.is_dir():
-                    validated_paths.append(p)
-                else:
-                    click.echo(click.style(f"Warning: Path '{p_str}' from config not found or not a directory. Skipping.", fg="yellow"))
-            final_root_paths = tuple(validated_paths)
+    # Combine paths from CLI and config file, then validate and de-duplicate.
+    combined_paths = list(root_paths)
+    if app_config.scan_dirs:
+        click.echo("Adding 'scan_dirs' from walker.toml.")
+        for p_str in app_config.scan_dirs:
+            p = Path(p_str).expanduser()
+            if p not in combined_paths:
+                combined_paths.append(p)
 
-
+    validated_paths = []
+    for p in combined_paths:
+        p_resolved = p.resolve()
+        if p_resolved.is_dir():
+            validated_paths.append(p_resolved)
+        else:
+            click.echo(click.style(f"Warning: Path '{p}' not found or not a directory. Skipping.", fg="yellow"))
+    final_root_paths = tuple(sorted(list(set(validated_paths))))
     # --- Merge CLI arguments and config file settings ---
     # CLI options take precedence over the config file.
     final_workers = workers if workers != 3 else app_config.workers
@@ -199,7 +213,9 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
                     results_queue.put(result)
             except Exception as exc:
                 path = future_to_path[future]
-                click.echo(f"\n'{path}' generated an exception: {exc}", err=True)
+                error_message = f"Error processing '{path}': {exc}"
+                logging.error(error_message)
+                click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
 
     # Wait for all items in the queue to be processed by the writer
     results_queue.join()

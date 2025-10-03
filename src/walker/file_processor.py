@@ -1,5 +1,6 @@
 # walker/file_processor.py
 import email
+import logging
 import hashlib
 import json
 import os
@@ -186,6 +187,17 @@ class FileProcessor:
                 for para in doc.paragraphs:
                     content += para.text + "\n"
 
+            # Open Document Format (ODF) files
+            elif self.mime_type in (
+                "application/vnd.oasis.opendocument.text",  # .odt
+                "application/vnd.oasis.opendocument.spreadsheet",  # .ods
+                "application/vnd.oasis.opendocument.presentation",  # .odp
+            ):
+                from odf import text, teletype
+                from odf.opendocument import load as odf_load
+                doc = odf_load(self.file_path)
+                content = "\n".join(teletype.extractText(p) for p in doc.getElementsByType(text.P))
+
             # Email messages
             elif self.mime_type == "message/rfc822":
                 with self.file_path.open("rb") as f:
@@ -213,6 +225,9 @@ class FileProcessor:
             if self.file_path.suffix.lower() in DEFAULT_EXCLUDED_EXTENSIONS:
                 return None
 
+            # Handle cases where the file might be deleted between scanning and processing
+            if not self.file_path.exists():
+                return None
 
             if not self.file_path.is_file():
                 return None
@@ -263,6 +278,15 @@ class FileProcessor:
 
 
             return FileMetadata(**metadata_kwargs)
+        except FileNotFoundError as e:
+            # File was likely deleted between the scan and processing.
+            logging.warning(f"File not found during processing (likely deleted): {self.file_path} - {e}")
+            return None
         except (IOError, PermissionError) as e:
-            # Suppressing print statements in workers for cleaner output
+            # Log other I/O related errors, like permission denied.
+            logging.warning(f"I/O error processing file: {self.file_path} - {e}")
+            return None
+        except Exception as e:
+            # Catch any other unexpected errors during file processing
+            logging.error(f"Unexpected error in FileProcessor for {self.file_path}: {e}", exc_info=True)
             return None
