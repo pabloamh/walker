@@ -77,24 +77,28 @@ This project uses Poetry for dependency management.
 
 For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the directory where you run the command. This is the recommended way to set options you use frequently.
 
-**Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
-
 ### Example `walker.toml`
 
 All settings for `walker` must be placed under the `[tool.walker]` section. Here is a comprehensive example:
 
 ```toml
 [tool.walker]
-# Set the default number of worker threads for processing.
+# workers: Set the default number of worker threads for processing.
 workers = 8
 
-# Define a list of directories to scan by default if no paths are
-# provided on the command line. Supports user home directory expansion.
+# db_batch_size: The number of file records to batch together before
+# writing to the database.
+db_batch_size = 1000
+
+# scan_dirs: A list of directories to scan by default if no paths are
+# provided on the command line.
+# This supports user home directory expansion (e.g., "~/Documents").
 # scan_dirs = ["~/Documents", "~/Pictures", "/media/archive/work"]
 scan_dirs = []
 
-# Define a list of directory names to always exclude from scanning.
+# exclude_dirs: A list of directory names to always exclude from scanning.
 # This is useful for ignoring common development, temporary, or cache folders.
+# It supports glob patterns (e.g., "*.egg-info").
 exclude_dirs = [
     "node_modules",
     "__pycache__",
@@ -107,6 +111,8 @@ exclude_dirs = [
     "*.egg-info"
 ]
 ```
+
+**Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
 
 ## Usage
 

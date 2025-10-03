@@ -51,7 +51,7 @@ def format_bytes(size: int) -> str:
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
 
-def db_writer_worker(batch_size: int = 500):
+def db_writer_worker(batch_size: int):
     """
     A dedicated worker that pulls results from the queue and writes them to the DB.
     Uses a batched "upsert" strategy for high performance with SQLite.
@@ -59,7 +59,7 @@ def db_writer_worker(batch_size: int = 500):
     """
     # Each thread needs its own session.
     db_session = database.SessionLocal()
-    print("DB writer worker started.")
+    click.echo("DB writer worker started.")
     batch = []
     total_processed = 0
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -87,6 +87,7 @@ def db_writer_worker(batch_size: int = 500):
                     db_session.execute(stmt)
                     db_session.commit()
                     total_processed += len(batch)
+                    click.echo(f"DB writer committed {len(batch)} records.")
                     batch.clear()
 
         results_queue.task_done()
@@ -128,7 +129,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
 
     click.echo(f"Initializing database...")
     database.init_db()
-    writer_thread = threading.Thread(target=db_writer_worker, args=(500,))
+    writer_thread = threading.Thread(target=db_writer_worker, args=(app_config.db_batch_size,))
     writer_thread.start()
 
     # --- Determine which paths to scan ---
