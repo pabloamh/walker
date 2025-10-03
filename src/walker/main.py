@@ -1,22 +1,18 @@
 # walker/main.py
-import concurrent.futures
-import queue
 import logging
 import sys
 import os, sys
-import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
-import click, attrs
+import click
 import imagehash
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 import numpy as np
 
-from . import config, database, models, scanner
-from .models import FileMetadata
+from . import config, database, models, scanner, indexer
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
@@ -24,20 +20,6 @@ def setup_logging():
     # Configure logging to write to a file, appending to it if it exists.
     # Only messages of level WARNING and above will be logged.
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filename=log_file, filemode='a')
-
-
-# A queue to hold file processing results before they are written to the DB.
-results_queue = queue.Queue()
-sentinel = object()  # A signal to stop the writer thread.
-
-# Default directories to exclude on Windows when scanning a root drive.
-# These are case-insensitive.
-DEFAULT_WINDOWS_EXCLUDES = [
-    "windows",
-    "program files",
-    "program files (x86)",
-    "$recycle.bin",
-]
 
 def format_bytes(size: int) -> str:
     """Formats a size in bytes to a human-readable string (KB, MB, GB, etc.)."""
@@ -50,56 +32,6 @@ def format_bytes(size: int) -> str:
         size /= power
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
-
-def db_writer_worker(batch_size: int = 500):
-    """
-    A dedicated worker that pulls results from the queue and writes them to the DB.
-    Uses a batched "upsert" strategy for high performance with SQLite.
-    This function creates its own database session to ensure thread safety.
-    """
-    # Each thread needs its own session.
-    db_session = database.SessionLocal()
-    print("DB writer worker started.")
-    batch = []
-    total_processed = 0
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-    while True:
-        item: Optional[FileMetadata] = results_queue.get()
-        if item is sentinel:  # End of queue
-            if batch:
-                with database.db_lock:
-                    stmt = sqlite_insert(models.FileIndex).values(batch)
-                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                    db_session.execute(stmt)
-                    db_session.commit()
-                    total_processed += len(batch)
-            break
-
-        if item:
-            batch.append(attrs.asdict(item))
-            if len(batch) >= batch_size:
-                with database.db_lock:
-                    stmt = sqlite_insert(models.FileIndex).values(batch)
-                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                    db_session.execute(stmt)
-                    db_session.commit()
-                    total_processed += len(batch)
-                    batch.clear()
-
-        results_queue.task_done()
-
-    db_session.close()
-    print(f"DB writer finished. Processed {total_processed} files.")
-
-def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
-    """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
-    # This is where you import the class to avoid pickling issues with some executors
-    from .file_processor import FileProcessor
-    processor = FileProcessor(path)
-    return processor.process()
 
 @click.group()
 def cli():
@@ -126,108 +58,19 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
 
     app_config = config.load_config()
 
-    click.echo(f"Initializing database...")
-    database.init_db()
-    writer_thread = threading.Thread(target=db_writer_worker, args=(500,))
-    writer_thread.start()
-
-    # --- Determine which paths to scan ---
-    # Combine paths from CLI and config file, then validate and de-duplicate.
-    combined_paths = list(root_paths)
-    if app_config.scan_dirs:
-        click.echo("Adding 'scan_dirs' from walker.toml.")
-        for p_str in app_config.scan_dirs:
-            p = Path(p_str).expanduser()
-            if p not in combined_paths:
-                combined_paths.append(p)
-
-    validated_paths = []
-    for p in combined_paths:
-        p_resolved = p.resolve()
-        if p_resolved.is_dir():
-            validated_paths.append(p_resolved)
-        else:
-            click.echo(click.style(f"Warning: Path '{p}' not found or not a directory. Skipping.", fg="yellow"))
-    final_root_paths = tuple(sorted(list(set(validated_paths))))
     # --- Merge CLI arguments and config file settings ---
     # CLI options take precedence over the config file.
     final_workers = workers if workers != 3 else app_config.workers
 
-    # Prepare exclusion list
-    final_exclude_list = {path.lower() for path in exclude_paths}
-    is_windows_root_scan = sys.platform == "win32" and any(
-        p.parent == p for p in final_root_paths
+    # The click.echo function will be used as the progress callback for the CLI
+    indexer_instance = indexer.Indexer(
+        root_paths=root_paths,
+        workers=final_workers,
+        exclude_paths=exclude_paths,
+        progress_callback=click.echo,
+        progress_bar_callback=tqdm,
     )
-
-    if is_windows_root_scan:
-        click.echo("Windows root drive scan detected. Applying default system exclusions.")
-        final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
-    final_exclude_list.update({d.lower() for d in app_config.exclude_dirs})
-
-    if not final_root_paths:
-        click.echo(click.style("Error: No scan paths provided on the command line or in walker.toml.", fg="red"), err=True)
-        sys.exit(1)
-
-    click.echo(f"Starting scan with {final_workers} workers...")
-    
-    all_file_paths = []
-    with tqdm(desc="Scanning directories", unit=" files") as pbar:
-        for path in final_root_paths:
-            for file_path in scanner.scan_directory(path, final_exclude_list):
-                all_file_paths.append(file_path)
-                pbar.update(1)
-    
-    click.echo(f"Found {len(all_file_paths)} total files.")
-    
-    # --- Smart Update Logic ---
-    click.echo("Checking for new or modified files...")
-    # This session is short-lived and used only for this initial check.
-    db_session = database.SessionLocal()
-    existing_files = {
-        p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime)
-    }
-    
-    files_to_process = []
-    for path in tqdm(all_file_paths, desc="Filtering files"):
-        path_str = str(path.resolve())
-        current_mtime = path.stat().st_mtime
-        if path_str not in existing_files:
-            files_to_process.append(("new", path))
-        elif current_mtime > existing_files[path_str]:
-            files_to_process.append(("updated", path))
-    db_session.close()
-
-    click.echo(f"Found {len(files_to_process)} new or modified files to process.")
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=final_workers) as executor:
-        # Submit jobs with their status ('new' or 'updated')
-        future_to_path = {
-            executor.submit(process_file_wrapper, path): path for _, path in files_to_process
-        }
-
-        progress_bar = tqdm(concurrent.futures.as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
-        for future in progress_bar:
-            try:
-                result = future.result()
-                if result:
-                    results_queue.put(result)
-            except Exception as exc:
-                path = future_to_path[future]
-                error_message = f"Error processing '{path}': {exc}"
-                logging.error(error_message)
-                click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
-
-    # Wait for all items in the queue to be processed by the writer
-    results_queue.join()
-
-    # Wait for all items in the queue to be processed by the writer
-    results_queue.join()
-
-    # Signal the writer to stop and wait for it to finish
-    results_queue.put(sentinel)
-    writer_thread.join()
-
-    click.echo("All files have been processed and indexed.")
+    indexer_instance.run()
 
 @cli.command(name="find-dupes")
 def find_dupes():

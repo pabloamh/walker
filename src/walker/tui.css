@@ -1,0 +1,12 @@
+Screen {
+    layout: vertical;
+}
+
+#log_container {
+    height: 1fr;
+    border: round $primary;
+}
+
+Button {
+    width: 100%;
+}
