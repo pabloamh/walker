@@ -1,12 +1,12 @@
 # walker/main.py
-import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import queue
 import logging
 import sys
 import os, sys
 import threading
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 import click, attrs
 import imagehash
@@ -51,49 +51,49 @@ def format_bytes(size: int) -> str:
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
 
-def db_writer_worker(batch_size: int):
+def db_writer_worker(db_queue: queue.Queue, batch_size: int):
     """
     A dedicated worker that pulls results from the queue and writes them to the DB.
     Uses a batched "upsert" strategy for high performance with SQLite.
     This function creates its own database session to ensure thread safety.
     """
-    # Each thread needs its own session.
-    db_session = database.SessionLocal()
-    click.echo("DB writer worker started.")
-    batch = []
-    total_processed = 0
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-    while True:
-        item: Optional[FileMetadata] = results_queue.get()
-        if item is sentinel:  # End of queue
-            if batch:
-                with database.db_lock:
-                    stmt = sqlite_insert(models.FileIndex).values(batch)
-                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                    db_session.execute(stmt)
-                    db_session.commit()
-                    total_processed += len(batch)
-            break
+    def commit_batch(session: Session, current_batch: list):
+        """Commits a batch of records to the database."""
+        if not current_batch:
+            return 0
+        
+        with database.db_lock:
+            stmt = sqlite_insert(models.FileIndex).values(current_batch)
+            update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+            stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+            session.execute(stmt)
+            session.commit()
+        
+        count = len(current_batch)
+        current_batch.clear()
+        return count
 
-        if item:
-            batch.append(attrs.asdict(item))
-            if len(batch) >= batch_size:
-                with database.db_lock:
-                    stmt = sqlite_insert(models.FileIndex).values(batch)
-                    update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                    stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                    db_session.execute(stmt)
-                    db_session.commit()
-                    total_processed += len(batch)
-                    click.echo(f"DB writer committed {len(batch)} records.")
-                    batch.clear()
+    with database.SessionLocal() as db_session:
+        click.echo("DB writer worker started.")
+        batch = []
+        total_processed = 0
 
-        results_queue.task_done()
+        while True:
+            item: Optional[FileMetadata] = db_queue.get()
+            if item is sentinel:
+                total_processed += commit_batch(db_session, batch)
+                break
 
-    db_session.close()
-    print(f"DB writer finished. Processed {total_processed} files.")
+            if item:
+                batch.append(attrs.asdict(item))
+                if len(batch) >= batch_size:
+                    total_processed += commit_batch(db_session, batch)
+
+            db_queue.task_done()
+
+    click.echo(f"DB writer finished. A total of {total_processed} records were written to the database.")
 
 def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
     """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
@@ -129,7 +129,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
 
     click.echo(f"Initializing database...")
     database.init_db()
-    writer_thread = threading.Thread(target=db_writer_worker, args=(app_config.db_batch_size,))
+    writer_thread = threading.Thread(target=db_writer_worker, args=(results_queue, app_config.db_batch_size))
     writer_thread.start()
 
     # --- Determine which paths to scan ---
@@ -166,8 +166,16 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     final_exclude_list.update({d.lower() for d in app_config.exclude_dirs})
 
     if not final_root_paths:
-        click.echo(click.style("Error: No scan paths provided on the command line or in walker.toml.", fg="red"), err=True)
-        sys.exit(1)
+        # If no paths are specified via CLI or config, provide a helpful message.
+        config_path = Path("walker.toml")
+        if not config_path.is_file():
+            click.echo(click.style("Warning: No scan paths provided and 'walker.toml' not found.", fg="yellow"))
+            click.echo(f"Please create a '{config_path.resolve()}' file with 'scan_dirs' or specify paths on the command line.")
+            click.echo("Example: walker index /path/to/scan")
+        else:
+            click.echo(click.style("Warning: No scan paths provided.", fg="yellow"))
+            click.echo("Please add directories to 'scan_dirs' in your 'walker.toml' or specify paths on the command line.")
+        return # Exit the command gracefully
 
     click.echo(f"Starting scan with {final_workers} workers...")
     
@@ -182,31 +190,49 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     
     # --- Smart Update Logic ---
     click.echo("Checking for new or modified files...")
-    # This session is short-lived and used only for this initial check.
-    db_session = database.SessionLocal()
-    existing_files = {
-        p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime)
-    }
-    
+
+    # Pre-cache file stats to avoid repeated os.stat() calls.
+    scanned_files: Dict[str, Tuple[Path, float]] = {}
+    for p in tqdm(all_file_paths, desc="Pre-caching file stats"):
+        try:
+            scanned_files[str(p.resolve())] = (p, p.stat().st_mtime)
+        except FileNotFoundError:
+            continue # File might have been deleted between scan and this step.
+
     files_to_process = []
-    for path in tqdm(all_file_paths, desc="Filtering files"):
-        path_str = str(path.resolve())
-        current_mtime = path.stat().st_mtime
-        if path_str not in existing_files:
-            files_to_process.append(("new", path))
-        elif current_mtime > existing_files[path_str]:
-            files_to_process.append(("updated", path))
-    db_session.close()
+    scanned_paths_set = set(scanned_files.keys())
+    db_paths_checked = set()
+
+    # Use a short-lived session to find modified files by checking the DB in chunks.
+    with database.SessionLocal() as db_session:
+        chunk_size = 10000
+        paths_to_query = list(scanned_paths_set)
+        
+        for i in tqdm(range(0, len(paths_to_query), chunk_size), desc="Finding modified files"):
+            paths_chunk = paths_to_query[i:i+chunk_size]
+            if not paths_chunk:
+                continue
+
+            existing_files_chunk = {p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime).filter(models.FileIndex.path.in_(paths_chunk))}
+            db_paths_checked.update(existing_files_chunk.keys())
+
+            for path_str, mtime in existing_files_chunk.items():
+                if scanned_files[path_str][1] > mtime:
+                    files_to_process.append(("updated", scanned_files[path_str][0]))
+
+    # Find new files by taking the set difference
+    new_paths = scanned_paths_set - db_paths_checked
+    files_to_process.extend(("new", scanned_files[path_str][0]) for path_str in new_paths)
 
     click.echo(f"Found {len(files_to_process)} new or modified files to process.")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=final_workers) as executor:
+    with ProcessPoolExecutor(max_workers=final_workers) as executor:
         # Submit jobs with their status ('new' or 'updated')
         future_to_path = {
             executor.submit(process_file_wrapper, path): path for _, path in files_to_process
         }
 
-        progress_bar = tqdm(concurrent.futures.as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
+        progress_bar = tqdm(as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
         for future in progress_bar:
             try:
                 result = future.result()
@@ -217,9 +243,6 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
                 error_message = f"Error processing '{path}': {exc}"
                 logging.error(error_message)
                 click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
-
-    # Wait for all items in the queue to be processed by the writer
-    results_queue.join()
 
     # Wait for all items in the queue to be processed by the writer
     results_queue.join()
@@ -236,30 +259,37 @@ def find_dupes():
     db_session = database.SessionLocal()
     try:
         click.echo("Querying for duplicate files by hash...")
-        
-        # Find hashes that appear more than once
-        duplicate_hashes = (
-            db_session.query(models.FileIndex.crypto_hash, func.count(models.FileIndex.id).label("count"))
+
+        # --- Efficiently find and group duplicates in a single query ---
+        # Create a subquery to find hashes that have more than one entry.
+        dupe_hashes_subq = (
+            db_session.query(models.FileIndex.crypto_hash)
             .group_by(models.FileIndex.crypto_hash)
             .having(func.count(models.FileIndex.id) > 1)
+            .subquery()
+        )
+
+        # Fetch all files that are part of a duplicate set, ordered by hash and then mtime.
+        # This ensures that when we group them, the oldest file is first.
+        all_dupes = (
+            db_session.query(models.FileIndex)
+            .filter(models.FileIndex.crypto_hash.in_(dupe_hashes_subq))
+            .order_by(models.FileIndex.crypto_hash, models.FileIndex.mtime)
             .all()
         )
 
-        if not duplicate_hashes:
+        if not all_dupes:
             click.echo("No duplicate files found.")
             return
 
-        click.echo(f"Found {len(duplicate_hashes)} sets of duplicate files.")
-        
-        for i, (hash_val, count) in enumerate(duplicate_hashes, 1):
-            click.echo(f"\n--- Set {i} ({count} files, hash: {hash_val[:12]}...) ---")
-            files = db_session.query(models.FileIndex).filter_by(crypto_hash=hash_val).order_by(models.FileIndex.mtime).all()
-            
-            # The first file after sorting by mtime is the "source"
-            source_file = files[0]
-            click.echo(click.style(f"  Source: {source_file.path}", fg="green"))
+        # Group the flat list of files by their hash in Python.
+        from itertools import groupby
+        grouped_dupes = groupby(all_dupes, key=lambda file: file.crypto_hash)
 
-            # List the other duplicates
+        for i, (hash_val, files_group) in enumerate(grouped_dupes, 1):
+            files = list(files_group)
+            click.echo(f"\n--- Set {i} ({len(files)} files, hash: {hash_val[:12]}...) ---")
+            click.echo(click.style(f"  Source: {files[0].path}", fg="green"))
             for file in files[1:]:
                 click.echo(f"  - Dup:  {file.path}")
 
@@ -291,28 +321,39 @@ def find_image_dupes(threshold: int):
         hashes = {path: imagehash.hex_to_hash(phash) for path, phash in images}
         paths = list(hashes.keys())
 
-        # --- Grouping similar images ---
+        # --- Efficiently group similar images ---
         groups = []
-        processed_indices = set()
-
-        for i in range(len(paths)):
-            if i in processed_indices:
-                continue
-
-            current_group = {paths[i]}
-            processed_indices.add(i)
-
-            for j in range(i + 1, len(paths)):
-                if j in processed_indices:
-                    continue
-                
-                # Compare perceptual hashes
-                if hashes[paths[i]] - hashes[paths[j]] <= threshold:
-                    current_group.add(paths[j])
-                    processed_indices.add(j)
+        if threshold == 0:
+            # Fast path for exact duplicates
+            from collections import defaultdict
+            hash_groups = defaultdict(list)
+            for path, phash_obj in hashes.items():
+                hash_groups[phash_obj].append(path)
             
-            if len(current_group) > 1:
-                groups.append(sorted(list(current_group)))
+            for group_paths in hash_groups.values():
+                if len(group_paths) > 1:
+                    groups.append(sorted(group_paths))
+        else:
+            # Grouping for similar images (threshold > 0)
+            processed_indices = set()
+            for i in range(len(paths)):
+                if i in processed_indices:
+                    continue
+
+                current_group = {paths[i]}
+                processed_indices.add(i)
+
+                for j in range(i + 1, len(paths)):
+                    if j in processed_indices:
+                        continue
+                    
+                    # Compare perceptual hashes
+                    if hashes[paths[i]] - hashes[paths[j]] <= threshold:
+                        current_group.add(paths[j])
+                        processed_indices.add(j)
+                
+                if len(current_group) > 1:
+                    groups.append(sorted(list(current_group)))
 
         if not groups:
             click.echo("No similar images found with the given threshold.")
