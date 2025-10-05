@@ -199,16 +199,14 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
         if chunk:
             yield chunk
 
-    total_files_to_process = 0
-    processed_count = 0
-
     # Process files in chunks to keep memory usage low
     with ProcessPoolExecutor(max_workers=final_workers) as executor, \
          database.SessionLocal() as db_session, \
-         tqdm(desc="Processing files", unit=" file") as pbar:
+         tqdm(desc="Scanning for files...", unit=" files", postfix={"processed": 0}) as pbar:
 
         chunk_iterator = get_file_chunks(chunk_size=10000)
         for path_chunk in chunk_iterator:
+            pbar.set_description("Filtering files...")
             # --- Smart Update Logic (applied per chunk) ---
             files_to_process_chunk = []
             
@@ -234,28 +232,29 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
             new_paths = scanned_paths_set - set(existing_files_chunk.keys())
             files_to_process_chunk.extend(scanned_files[path_str][0] for path_str in new_paths)
 
+            # Update the total scanned count
+            pbar.update(len(path_chunk))
+
             if not files_to_process_chunk:
-                pbar.update(len(path_chunk) - processed_count)
-                processed_count = len(path_chunk)
                 continue
 
+            pbar.set_description("Processing files...")
             # --- Submit the filtered chunk for processing ---
             future_to_path = {
                 executor.submit(process_file_wrapper, path, results_queue): path for path in files_to_process_chunk
             }
 
+            processed_count = pbar.postfix["processed"]
             for future in as_completed(future_to_path):
                 try:
                     future.result()
+                    processed_count += 1
+                    pbar.set_postfix(processed=processed_count)
                 except Exception as exc:
                     path = future_to_path[future]
                     error_message = f"Error processing '{path}': {exc}"
                     logging.error(error_message)
                     click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
-                pbar.update(1)
-            
-            # Update progress for files that were scanned but not processed
-            pbar.update(len(path_chunk) - len(files_to_process_chunk))
 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
