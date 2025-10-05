@@ -20,8 +20,8 @@ def download_sentence_transformer(model_name: str, local_path: Path):
 
 def download_spacy_model(model_full_name: str, model_short_name: str):
     """Downloads a spaCy model if it's not already installed."""
-    print(f"Checking for spaCy model '{model_short_name}'...")
-    if not spacy.util.is_package(model_short_name):
+    print(f"Checking for spaCy model '{model_full_name}'...")
+    if not spacy.util.is_package(model_full_name):
         print(f"...model not found. Downloading '{model_full_name}'...")
         spacy.cli.download(model_full_name)
         print("...download complete!")
@@ -59,6 +59,6 @@ if __name__ == "__main__":
     # Download spaCy models for each configured PII language
     for lang in app_config.pii_languages:
         model_name = get_spacy_model_name(lang)
-        download_spacy_model(model_name, model_name)
+        download_spacy_model(model_name, lang)
     cache_tldextract_list(models_dir / 'tldextract_cache')
     print("\nAll offline assets are ready.")

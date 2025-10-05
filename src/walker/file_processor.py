@@ -305,7 +305,7 @@ class FileProcessor:
                 # The default limit is 1,000,000 characters.
                 truncated_content = metadata_kwargs["content"][:1_000_000]
                 app_config = config.load_config()
-                pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0], languages=app_config.pii_languages)
+                pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0])
                 metadata_kwargs["has_pii"] = bool(pii_results)
 
 

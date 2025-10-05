@@ -258,17 +258,20 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
                 executor.submit(process_file_wrapper, path, results_queue): path for path in files_to_process_chunk
             }
 
-            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing chunk", leave=False):
+            processed_in_chunk = 0
+            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing files", leave=False):
                 try:
                     if future.result():
-                        pbar.postfix["processed"] += 1
-                        pbar.update(0) # Refresh the postfix display
+                        processed_in_chunk += 1
                 except Exception as exc:
                     path = future_to_path[future]
                     error_message = f"Error processing '{path}': {exc}"
                     logging.error(error_message)
                     tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
+            # Update the main progress bar's postfix after the chunk is done
+            pbar.postfix["processed"] += processed_in_chunk
+            pbar.refresh()
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
     writer_thread.join()
