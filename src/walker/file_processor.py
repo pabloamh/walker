@@ -1,6 +1,7 @@
 # walker/file_processor.py
 import email
 import logging
+import warnings
 import hashlib
 import json
 import os
@@ -23,6 +24,11 @@ from pathlib import Path
 from . import config
 from .models import FileMetadata, FileIndex
 
+# --- Filter specific warnings ---
+# Pillow >= 10.1.0 raises a DecompressionBombWarning for large images.
+# We trust the files we are scanning, so we can suppress this.
+warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+
 # --- Model Loading ---
 def get_embedding_model() -> SentenceTransformer:
     """Loads the SentenceTransformer model."""
@@ -39,8 +45,19 @@ def get_embedding_model() -> SentenceTransformer:
 
 # Load models once when the module is imported. This is crucial for performance,
 # as it prevents reloading the models for every file in a multi-processing environment.
+
+def get_pii_analyzer() -> AnalyzerEngine:
+    """Loads the Presidio AnalyzerEngine with languages from config."""
+    app_config = config.load_config()
+    # We need to create a new registry and load the NLP models for the specified languages.
+    # This is a more advanced setup to support multiple languages.
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
+    provider = NlpEngineProvider()
+    nlp_engine = provider.create_engine()
+    return AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=app_config.pii_languages)
+
 embedding_model = get_embedding_model()
-pii_analyzer = AnalyzerEngine()
+pii_analyzer = get_pii_analyzer()
 
 
 # Default filenames and extensions to exclude from processing.
@@ -282,9 +299,13 @@ class FileProcessor:
             if metadata_kwargs["content"]:
                 embedding = embedding_model.encode(metadata_kwargs["content"])
                 metadata_kwargs["content_embedding"] = embedding.tobytes()
-                
+
                 # Analyze content for PII
-                pii_results = pii_analyzer.analyze(text=metadata_kwargs["content"], language='en')
+                # Truncate content to avoid errors with very large files in presidio.
+                # The default limit is 1,000,000 characters.
+                truncated_content = metadata_kwargs["content"][:1_000_000]
+                app_config = config.load_config()
+                pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0], languages=app_config.pii_languages)
                 metadata_kwargs["has_pii"] = bool(pii_results)
 
 

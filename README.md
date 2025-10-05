@@ -14,7 +14,7 @@ The application is built with a multi-threaded architecture to process files con
     - **MIME Type**: Identifies the file type using `libmagic`.
 - **Specialized Content Extraction**:
     - **Images**: Generates perceptual hashes (p-hash) for similarity detection and extracts EXIF metadata.
-    - **Documents**: Extracts text content from PDF (`.pdf`) and Microsoft Word (`.docx`) files.
+    - **Documents**: Extracts text content from PDF (`.pdf`), Microsoft Word (`.docx`), and ODF (`.odt`) files.
     - **Videos**: Extracts media metadata like resolution, duration, and codecs.
     - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
@@ -37,7 +37,6 @@ Before you begin, ensure you have the following installed on your system:
 -   **Poetry** for managing Python dependencies.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
 -   **`mediainfo`**: Required for video metadata extraction.
--   **A `spaCy` model**: Required for Personally Identifiable Information (PII) detection.
 
 ### System Dependency Installation
 
@@ -67,17 +66,11 @@ This project uses Poetry for dependency management.
     poetry install
     ```
 
-3.  **Download the Language Model**:
-    After installing the Python packages, you must also download the English language model required for PII detection:
-    ```bash
-    poetry run python -m spacy download en_core_web_lg
-    ```
-
 ## Configuration
 
-For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the directory where you run the command. This is the recommended way to set options you use frequently.
+For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the `src/walker/` directory. This is the recommended way to set options you use frequently.
 
-### Example `walker.toml`
+### Example `src/walker/walker.toml`
 
 All settings for `walker` must be placed under the `[tool.walker]` section. Here is a comprehensive example:
 
@@ -110,9 +103,65 @@ exclude_dirs = [
     "target", # For Rust projects
     "*.egg-info"
 ]
+
+# pii_languages: A list of language codes (e.g., "en", "es", "fr") to use for
+# PII (Personally Identifiable Information) detection. The default is English.
+# The first language in the list is the primary one.
+pii_languages = ["en", "es"]
+
+# embedding_model_path: Path to a locally saved sentence-transformer model.
+# If set, the application will not need internet access to download it.
+# The path is relative to the `src/walker/` directory.
+# embedding_model_path = "models/all-MiniLM-L6-v2"
 ```
 
 **Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
+
+## Offline Setup and Usage
+
+The application uses several components that may require online access to download models or data on their first run. To use the application in a fully offline environment, you must pre-download these assets.
+
+### Step 1: Download All Offline Assets
+
+On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
+
+From your project's root directory, run:
+```bash
+poetry run python src/walker/download_assets.py
+```
+
+This script will perform the following actions:
+1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
+2.  **Download the `spaCy` language model** (`en_core_web_lg`) required for PII detection.
+3.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/walker/models/tldextract_cache`.
+
+### Step 2: Update Configuration for Offline Use
+
+Uncomment and set the `embedding_model_path` in your `src/walker/walker.toml` file to point to the downloaded model directory.
+
+```toml
+[tool.walker]
+# ... other settings ...
+
+# Path to the locally saved sentence-transformer model.
+embedding_model_path = "models/all-MiniLM-L6-v2"
+```
+
+### Step 3: Running Offline
+
+When you deploy your application, ensure the `src/walker/models` directory (containing the downloaded assets) is included.
+
+To ensure `tldextract` uses its local cache, you must **set an environment variable** before running the application.
+
+```bash
+# Set the cache directory path relative to where you run the command
+export TLDEXTRACT_CACHE_DIR=./src/walker/models/tldextract_cache
+
+# Now run the indexer
+poetry run python -m walker.main index
+```
+
+With these steps completed, the application will be fully functional without requiring any internet access.
 
 ## Usage
 
@@ -120,7 +169,7 @@ The application has multiple sub-commands.
 
 ### Indexing Files
 
-To scan a directory and build or update your index, use the `index` command.
+To scan a directory and build or update your index, use the `index` command. The application will automatically change its working directory to `src/walker/` to ensure all paths are resolved correctly.
 
 ```bash
 poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
@@ -132,22 +181,6 @@ poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
 **Options:**
 -   `--workers INTEGER`: The number of worker threads to use for processing files.
 -   `--exclude TEXT`: Directory name to exclude. Can be used multiple times.
-
-**Examples:**
-
-```bash
-# Scan a single directory using 8 worker threads
-poetry run python -m walker.main index ~/Documents/my_files --workers 8
-
-# Scan multiple directories at once
-poetry run python -m walker.main index /path/to/photos /path/to/work-docs
-
-# Scan a directory and exclude specific folders by name
-# This will skip any folder named 'backups' or 'temp_folder' it encounters.
-poetry run python -m walker.main index /media/archive --exclude backups --exclude temp_folder
-```
-
-The application will create a `file_indexer.db` file in the project's root directory containing the metadata of all the processed files.
 
 ### Reporting and Analysis
 

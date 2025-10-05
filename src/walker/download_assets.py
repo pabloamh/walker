@@ -37,7 +37,7 @@ def cache_tldextract_list(cache_dir: Path):
     print("...caching complete!")
 
 if __name__ == "__main__":
-    download_sentence_transformer('all-MiniLM-L6-v2', Path('./models/all-MiniLM-L6-v2'))
+    download_sentence_transformer('all-MiniLM-L6-v2', Path('./src/walker/models/all-MiniLM-L6-v2'))
     download_spacy_model('en_core_web_lg')
-    cache_tldextract_list(Path('./models/tldextract_cache'))
+    cache_tldextract_list(Path('./src/walker/models/tldextract_cache'))
     print("\nAll offline assets are ready.")

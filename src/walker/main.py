@@ -33,6 +33,8 @@ DEFAULT_WINDOWS_EXCLUDES = [
     "windows",
     "program files",
     "program files (x86)",
+    "pagefile.sys",
+    "hiberfil.sys",
     "$recycle.bin",
 ]
 
@@ -251,7 +253,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
             }
 
             processed_count = pbar.postfix["processed"]
-            for future in as_completed(future_to_path):
+            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing chunk", leave=False):
                 try:
                     future.result()
                     processed_count += 1
@@ -260,7 +262,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
                     path = future_to_path[future]
                     error_message = f"Error processing '{path}': {exc}"
                     logging.error(error_message)
-                    click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
+                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
