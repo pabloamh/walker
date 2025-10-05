@@ -25,13 +25,16 @@ from .models import FileMetadata, FileIndex
 
 # --- Model Loading ---
 def get_embedding_model() -> SentenceTransformer:
-    """
-    Loads the SentenceTransformer model.
-    If a local path is specified in the config, it loads from there.
-    Otherwise, it downloads (or uses the cache for) the default model.
-    """
+    """Loads the SentenceTransformer model."""
     app_config = config.load_config()
     model_name_or_path = app_config.embedding_model_path or 'all-MiniLM-L6-v2'
+
+    # If a relative path is provided, make it relative to the script's directory
+    # to ensure it's found correctly regardless of where the app is run from.
+    if app_config.embedding_model_path and not os.path.isabs(app_config.embedding_model_path):
+        script_dir = Path(__file__).parent
+        model_name_or_path = str(script_dir / app_config.embedding_model_path)
+
     return SentenceTransformer(model_name_or_path, device='cpu')
 
 # Load models once when the module is imported. This is crucial for performance,

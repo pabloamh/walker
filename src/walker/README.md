@@ -31,15 +31,12 @@ The application is built with a multi-threaded architecture to process files con
 
 ## Prerequisites
 
-This project uses Poetry for dependency management.
-
 Before you begin, ensure you have the following installed on your system:
 
 -   **Python 3.11+**
 -   **Poetry** for managing Python dependencies.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
 -   **`mediainfo`**: Required for video metadata extraction.
--   **A `spaCy` model**: Required for Personally Identifiable Information (PII) detection.
 
 ### System Dependency Installation
 
@@ -67,12 +64,6 @@ This project uses Poetry for dependency management.
     From the root of the project, run the following command to create a virtual environment and install the required packages:
     ```bash
     poetry install
-    ```
-
-3.  **Download the Language Model**:
-    After installing the Python packages, you must also download the English language model required for PII detection:
-    ```bash
-    poetry run python -m spacy download en_core_web_lg
     ```
 
 ## Configuration
@@ -123,7 +114,7 @@ The application uses several components that may require online access to downlo
 
 ### Step 1: Download All Offline Assets
 
-On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
+On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/` directory.
 
 From your project's root directory, run:
 ```bash
