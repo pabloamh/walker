@@ -102,13 +102,19 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
 
 def process_file_wrapper(path: Path, shared_queue: queue.Queue) -> Optional[FileMetadata]:
     """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
+    import warnings
+    from PIL import Image
+
+    # Filter warnings within the worker process.
+    warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+
     # This is where you import the class to avoid pickling issues with some executors
     from .file_processor import FileProcessor
     processor = FileProcessor(path)
     result = processor.process()
     if result:
         shared_queue.put(result)
-    return path # Return something simple to track completion
+    return result is not None # Return True if processed, False otherwise
 
 @click.group()
 def cli():
@@ -252,12 +258,11 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
                 executor.submit(process_file_wrapper, path, results_queue): path for path in files_to_process_chunk
             }
 
-            processed_count = pbar.postfix["processed"]
             for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing chunk", leave=False):
                 try:
-                    future.result()
-                    processed_count += 1
-                    pbar.set_postfix(processed=processed_count)
+                    if future.result():
+                        pbar.postfix["processed"] += 1
+                        pbar.update(0) # Refresh the postfix display
                 except Exception as exc:
                     path = future_to_path[future]
                     error_message = f"Error processing '{path}': {exc}"
