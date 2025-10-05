@@ -94,19 +94,40 @@ scan_dirs = []
 # It supports glob patterns (e.g., "*.egg-info").
 exclude_dirs = [
     "node_modules",
+    "bower_components", # JS package manager
+    "vendor",           # PHP package manager (Composer)
+    # --- Python ---
+    ".git",
+    ".venv",
+    "__pycache__",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
-    ".idea",
-    ".vscode",
-    "__pycache__",
-    ".venv",
-    ".git",
     "build",
     "dist",
+    "*.egg-info",
+    # --- JS/Web Development ---
+    ".idea",
+    ".vscode",
     ".cache",
+    ".next",  # Next.js build folder
+    ".nuxt",  # Nuxt.js build folder
+    # --- Other Build/Cache ---
     "target", # For Rust projects
-    "*.egg-info"
+    # --- Virtual/System Filesystems (especially for Linux) ---
+    "proc",
+    "sys",
+    "dev",
+    "run",
+    # --- macOS Specific ---
+    ".DocumentRevisions-V100",
+    ".fseventsd",
+    ".Spotlight-V100",
+    ".Trashes",
+    "private",
+    # --- Windows/macOS User Dirs (use with caution if you want to scan these) ---
+    # "AppData", # Windows AppData
+    # "Library", # macOS Library
 ]
 
 # pii_languages: A list of language codes (e.g., "en", "es", "fr") to use for

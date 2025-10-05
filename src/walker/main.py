@@ -31,11 +31,29 @@ sentinel = object()  # A signal to stop the writer thread.
 # These are case-insensitive.
 DEFAULT_WINDOWS_EXCLUDES = [
     "windows",
+    "programdata",
     "program files",
     "program files (x86)",
     "pagefile.sys",
     "hiberfil.sys",
+    "swapfile.sys",
     "$recycle.bin",
+    "system volume information",
+    "msocache",
+]
+
+# Default directories to exclude on macOS when scanning from the root.
+DEFAULT_MACOS_EXCLUDES = [
+    "/.DocumentRevisions-V100",
+    "/.fseventsd",
+    "/.Spotlight-V100",
+    "/.Trashes",
+    "/private",
+    "/dev",
+    "/System",
+    "/Library",
+    "/Applications",
+    "/Users/*/Library",
 ]
 
 def format_bytes(size: int) -> str:
@@ -191,13 +209,21 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
 
     # Prepare exclusion list
     final_exclude_list = {path.lower() for path in exclude_paths}
-    is_windows_root_scan = sys.platform == "win32" and any(
-        p.parent == p for p in final_root_paths
-    )
 
-    if is_windows_root_scan:
-        click.echo("Windows root drive scan detected. Applying default system exclusions.")
-        final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
+    # --- Apply platform-specific default exclusions for root-level scans ---
+    is_root_scan = any(p.parent == p for p in final_root_paths)
+    if is_root_scan:
+        if sys.platform == "win32":
+            click.echo("Windows root drive scan detected. Applying default system exclusions.")
+            final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
+        elif sys.platform == "darwin": # macOS
+            click.echo("macOS root drive scan detected. Applying default system exclusions.")
+            # For macOS, we add them as they are, since they include paths.
+            # The scanner will handle these absolute paths correctly.
+            final_exclude_list.update({p.lower() for p in DEFAULT_MACOS_EXCLUDES})
+        elif sys.platform.startswith("linux"):
+            click.echo("Linux root drive scan detected. Consider excluding /proc, /sys, /dev, /run.")
+
     final_exclude_list.update({d.lower() for d in app_config.exclude_dirs})
 
     if not final_root_paths:

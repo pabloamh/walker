@@ -72,6 +72,7 @@ DEFAULT_EXCLUDED_EXTENSIONS = {
     ".tmp",  # Temporary file
     ".part", # Partial download
     ".crdownload", # Chrome partial download
+    ".log", # Log files
 }
 
 class FileProcessor:
