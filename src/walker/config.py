@@ -1,6 +1,7 @@
 # walker/config.py
 import tomllib
 import functools
+import attrs
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
