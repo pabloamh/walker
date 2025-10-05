@@ -181,70 +181,81 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
         return # Exit the command gracefully
 
     click.echo(f"Starting scan with {final_workers} workers...")
-    
-    all_file_paths = []
-    with tqdm(desc="Scanning directories", unit=" files") as pbar:
-        for path in final_root_paths:
-            for file_path in scanner.scan_directory(path, final_exclude_list):
-                all_file_paths.append(file_path)
-                pbar.update(1)
-    
-    click.echo(f"Found {len(all_file_paths)} total files.")
-    
-    # --- Smart Update Logic ---
-    click.echo("Checking for new or modified files...")
 
-    # Pre-cache file stats to avoid repeated os.stat() calls.
-    scanned_files: Dict[str, Tuple[Path, float]] = {}
-    for p in tqdm(all_file_paths, desc="Pre-caching file stats"):
-        try:
-            scanned_files[str(p.resolve())] = (p, p.stat().st_mtime)
-        except FileNotFoundError:
-            continue # File might have been deleted between scan and this step.
+    def get_file_chunks(chunk_size: int):
+        """Yields chunks of file paths from the scanner."""
+        chunk = []
+        # Create a single generator for all root paths
+        all_paths_generator = (
+            file_path
+            for root in final_root_paths
+            for file_path in scanner.scan_directory(root, final_exclude_list)
+        )
+        for file_path in all_paths_generator:
+            chunk.append(file_path)
+            if len(chunk) >= chunk_size:
+                yield chunk
+                chunk = []
+        if chunk:
+            yield chunk
 
-    files_to_process = []
-    scanned_paths_set = set(scanned_files.keys())
-    db_paths_checked = set()
+    total_files_to_process = 0
+    processed_count = 0
 
-    # Use a short-lived session to find modified files by checking the DB in chunks.
-    with database.SessionLocal() as db_session:
-        chunk_size = 10000
-        paths_to_query = list(scanned_paths_set)
-        
-        for i in tqdm(range(0, len(paths_to_query), chunk_size), desc="Finding modified files"):
-            paths_chunk = paths_to_query[i:i+chunk_size]
-            if not paths_chunk:
-                continue
+    # Process files in chunks to keep memory usage low
+    with ProcessPoolExecutor(max_workers=final_workers) as executor, \
+         database.SessionLocal() as db_session, \
+         tqdm(desc="Processing files", unit=" file") as pbar:
 
-            existing_files_chunk = {p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime).filter(models.FileIndex.path.in_(paths_chunk))}
-            db_paths_checked.update(existing_files_chunk.keys())
+        chunk_iterator = get_file_chunks(chunk_size=10000)
+        for path_chunk in chunk_iterator:
+            # --- Smart Update Logic (applied per chunk) ---
+            files_to_process_chunk = []
+            
+            # 1. Pre-cache stats for the current chunk
+            scanned_files: Dict[str, Tuple[Path, float]] = {}
+            for p in path_chunk:
+                try:
+                    scanned_files[str(p.resolve())] = (p, p.stat().st_mtime)
+                except FileNotFoundError:
+                    continue
+            
+            scanned_paths_set = set(scanned_files.keys())
 
+            # 2. Check this chunk against the database
+            existing_files_chunk = {p: m for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime).filter(models.FileIndex.path.in_(scanned_paths_set))}
+            
+            # 3. Find modified files in the chunk
             for path_str, mtime in existing_files_chunk.items():
                 if scanned_files[path_str][1] > mtime:
-                    files_to_process.append(("updated", scanned_files[path_str][0]))
+                    files_to_process_chunk.append(scanned_files[path_str][0])
+            
+            # 4. Find new files in the chunk
+            new_paths = scanned_paths_set - set(existing_files_chunk.keys())
+            files_to_process_chunk.extend(scanned_files[path_str][0] for path_str in new_paths)
 
-    # Find new files by taking the set difference
-    new_paths = scanned_paths_set - db_paths_checked
-    files_to_process.extend(("new", scanned_files[path_str][0]) for path_str in new_paths)
+            if not files_to_process_chunk:
+                pbar.update(len(path_chunk) - processed_count)
+                processed_count = len(path_chunk)
+                continue
 
-    click.echo(f"Found {len(files_to_process)} new or modified files to process.")
+            # --- Submit the filtered chunk for processing ---
+            future_to_path = {
+                executor.submit(process_file_wrapper, path, results_queue): path for path in files_to_process_chunk
+            }
 
-    with ProcessPoolExecutor(max_workers=final_workers) as executor:
-        # Submit jobs with their status ('new' or 'updated')
-        future_to_path = {
-            executor.submit(process_file_wrapper, path, results_queue): path for _, path in files_to_process
-        }
-
-        progress_bar = tqdm(as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
-        for future in progress_bar:
-            try:
-                # Calling future.result() is important to raise any exceptions from the worker
-                future.result()
-            except Exception as exc:
-                path = future_to_path[future]
-                error_message = f"Error processing '{path}': {exc}"
-                logging.error(error_message)
-                click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
+            for future in as_completed(future_to_path):
+                try:
+                    future.result()
+                except Exception as exc:
+                    path = future_to_path[future]
+                    error_message = f"Error processing '{path}': {exc}"
+                    logging.error(error_message)
+                    click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
+                pbar.update(1)
+            
+            # Update progress for files that were scanned but not processed
+            pbar.update(len(path_chunk) - len(files_to_process_chunk))
 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
