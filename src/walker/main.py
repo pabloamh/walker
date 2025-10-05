@@ -1,7 +1,7 @@
 # walker/main.py
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import queue
-import logging
+import logging, multiprocessing
 import sys
 import os, sys
 import threading
@@ -25,9 +25,6 @@ def setup_logging():
     # Only messages of level WARNING and above will be logged.
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filename=log_file, filemode='a')
 
-
-# A queue to hold file processing results before they are written to the DB.
-results_queue = queue.Queue()
 sentinel = object()  # A signal to stop the writer thread.
 
 # Default directories to exclude on Windows when scanning a root drive.
@@ -95,12 +92,15 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
 
     click.echo(f"DB writer finished. A total of {total_processed} records were written to the database.")
 
-def process_file_wrapper(path: Path) -> Optional[FileMetadata]:
+def process_file_wrapper(path: Path, shared_queue: queue.Queue) -> Optional[FileMetadata]:
     """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
     # This is where you import the class to avoid pickling issues with some executors
     from .file_processor import FileProcessor
     processor = FileProcessor(path)
-    return processor.process()
+    result = processor.process()
+    if result:
+        shared_queue.put(result)
+    return path # Return something simple to track completion
 
 @click.group()
 def cli():
@@ -129,10 +129,13 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
 
     click.echo(f"Initializing database...")
     database.init_db()
-    writer_thread = threading.Thread(target=db_writer_worker, args=(results_queue, app_config.db_batch_size))
-    writer_thread.start()
 
-    # --- Determine which paths to scan ---
+    # Use a Manager to create a queue that can be shared between processes
+    manager = multiprocessing.Manager()
+    results_queue = manager.Queue()
+
+    writer_thread = threading.Thread(target=db_writer_worker, args=(results_queue, app_config.db_batch_size))
+    writer_thread.start()    # --- Determine which paths to scan ---
     # Combine paths from CLI and config file, then validate and de-duplicate.
     combined_paths = list(root_paths)
     if app_config.scan_dirs:
@@ -229,23 +232,19 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     with ProcessPoolExecutor(max_workers=final_workers) as executor:
         # Submit jobs with their status ('new' or 'updated')
         future_to_path = {
-            executor.submit(process_file_wrapper, path): path for _, path in files_to_process
+            executor.submit(process_file_wrapper, path, results_queue): path for _, path in files_to_process
         }
 
         progress_bar = tqdm(as_completed(future_to_path), total=len(files_to_process), desc="Processing files")
         for future in progress_bar:
             try:
-                result = future.result()
-                if result:
-                    results_queue.put(result)
+                # Calling future.result() is important to raise any exceptions from the worker
+                future.result()
             except Exception as exc:
                 path = future_to_path[future]
                 error_message = f"Error processing '{path}': {exc}"
                 logging.error(error_message)
                 click.echo(click.style(f"\n{error_message}", fg="red"), err=True)
-
-    # Wait for all items in the queue to be processed by the writer
-    results_queue.join()
 
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)
