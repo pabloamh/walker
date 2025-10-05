@@ -20,15 +20,23 @@ from PIL import Image, ExifTags
 from docx import Document
 
 from pathlib import Path
-from .models import FileMetadata
+from . import config
+from .models import FileMetadata, FileIndex
 
 # --- Model Loading ---
-# Load the model once when the module is imported. This is crucial for performance,
-# as it prevents reloading the model for every file in a multi-processing environment.
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+def get_embedding_model() -> SentenceTransformer:
+    """
+    Loads the SentenceTransformer model.
+    If a local path is specified in the config, it loads from there.
+    Otherwise, it downloads (or uses the cache for) the default model.
+    """
+    app_config = config.load_config()
+    model_name_or_path = app_config.embedding_model_path or 'all-MiniLM-L6-v2'
+    return SentenceTransformer(model_name_or_path, device='cpu')
 
-# Initialize the PII analyzer engine. This is also loaded once for performance.
-# It will use a default spaCy model ('en_core_web_lg') if available.
+# Load models once when the module is imported. This is crucial for performance,
+# as it prevents reloading the models for every file in a multi-processing environment.
+embedding_model = get_embedding_model()
 pii_analyzer = AnalyzerEngine()
 
 

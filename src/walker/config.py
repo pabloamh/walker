@@ -1,8 +1,9 @@
 # walker/config.py
 import tomllib
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+import click
 import attrs
 
 
@@ -13,6 +14,7 @@ class Config:
     db_batch_size: int = 500
     exclude_dirs: List[str] = attrs.field(factory=list)
     scan_dirs: List[str] = attrs.field(factory=list)
+    embedding_model_path: Optional[str] = None
 
 
 def load_config() -> Config:
@@ -46,4 +48,5 @@ def load_config() -> Config:
         db_batch_size=walker_config.get("db_batch_size", 500),
         exclude_dirs=walker_config.get("exclude_dirs", []),
         scan_dirs=walker_config.get("scan_dirs", []),
+        embedding_model_path=walker_config.get("embedding_model_path"),
     )

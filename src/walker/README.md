@@ -117,6 +117,41 @@ exclude_dirs = [
 
 **Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
 
+## Offline Setup and Usage
+
+The application uses several components that may require online access to download models or data on their first run. To use the application in a fully offline environment, you must pre-download these assets.
+
+### Step 1: Download All Offline Assets
+
+On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
+
+From your project's root directory, run:
+```bash
+poetry run python src/walker/download_assets.py
+```
+
+Run this script from your project's root directory:
+
+```bash
+poetry run python download_model.py
+```
+
+This will create a `models/all-MiniLM-L6-v2` directory containing the model files.
+
+### Step 2: Update Configuration
+
+Add the `embedding_model_path` setting to your `walker.toml` file to point to the downloaded model directory. This path should be relative to where you run the `walker` command.
+
+```toml
+[tool.walker]
+# ... other settings ...
+
+# Path to the locally saved sentence-transformer model.
+embedding_model_path = "models/all-MiniLM-L6-v2"
+```
+
+When you deploy your application, simply include the `models` directory alongside it. The application will now load the model from this local path, removing the need for internet access.
+
 ## Usage
 
 The application has multiple sub-commands.
