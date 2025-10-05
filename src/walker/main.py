@@ -62,12 +62,18 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
             return 0
         
         with database.db_lock:
-            stmt = sqlite_insert(models.FileIndex).values(current_batch)
-            update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-            stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-            session.execute(stmt)
-            session.commit()
-        
+            try:
+                stmt = sqlite_insert(models.FileIndex).values(current_batch)
+                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
+                session.execute(stmt)
+                session.commit()
+            except Exception as e:
+                # This can happen if the DB is locked by another process.
+                if "database is locked" in str(e).lower():
+                    click.echo(click.style("\nDatabase is locked by another process. Please close other connections and try again.", fg="red"), err=True)
+                    # We can't continue, so we'll re-raise to stop the thread.
+                    raise
         count = len(current_batch)
         current_batch.clear()
         return count

@@ -17,15 +17,26 @@ class Config:
 
 def load_config() -> Config:
     """
-    Loads configuration from a 'walker.toml' file in the current directory.
-    If the file doesn't exist, it returns a default configuration.
+    Loads configuration from 'walker.toml'.
+    It searches in the current working directory first, then in the script's directory.
+    If not found, it returns a default configuration.
     """
-    config_path = Path("walker.toml")
+    # Look for walker.toml in the current directory first, then in the script's directory.
+    search_paths = [Path.cwd(), Path(__file__).parent]
+    config_path = None
+    for p in search_paths:
+        if (p / "walker.toml").is_file():
+            config_path = p / "walker.toml"
+            break
+
     config_data: Dict[str, Any] = {}
 
-    if config_path.is_file():
+    if config_path:
+        click.echo(f"Loading configuration from {config_path}")
         with config_path.open("rb") as f:
             config_data = tomllib.load(f)
+    else:
+        click.echo("No 'walker.toml' found. Using default settings.")
 
     # Get the [tool.walker] table from the TOML file
     walker_config = config_data.get("tool", {}).get("walker", {})
