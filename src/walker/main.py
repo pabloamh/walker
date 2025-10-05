@@ -1,6 +1,6 @@
 # walker/main.py
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import queue
+import queue, resource
 import logging, multiprocessing
 import sys
 import os, sys
@@ -100,13 +100,29 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
 
     click.echo(f"DB writer finished. A total of {total_processed} records were written to the database.")
 
-def process_file_wrapper(path: Path, shared_queue: queue.Queue) -> Optional[FileMetadata]:
+def set_memory_limit(limit_gb: Optional[float]):
+    """Sets a soft memory limit for the current process (Linux/macOS only)."""
+    if limit_gb is None or sys.platform == "win32":
+        return
+
+    try:
+        limit_bytes = int(limit_gb * 1024**3)
+        # Set both soft and hard limits for virtual memory
+        resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+    except (ValueError, resource.error) as e:
+        # This might fail if the limit is too low or due to permissions.
+        # We'll log it but not stop the worker.
+        logging.warning(f"Could not set memory limit: {e}")
+
+def process_file_wrapper(path: Path, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> Optional[FileMetadata]:
     """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
     import warnings
     from PIL import Image
 
     # Filter warnings within the worker process.
     warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+
+    set_memory_limit(memory_limit_gb)
 
     # This is where you import the class to avoid pickling issues with some executors
     from .file_processor import FileProcessor
@@ -124,8 +140,9 @@ def cli():
 @cli.command(name="index")
 @click.argument('root_paths', nargs=-1, required=False, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
 @click.option('--workers', default=3, help='Number of processor workers.')
+@click.option('--memory-limit', 'memory_limit_gb', type=float, help='Soft memory limit per worker in GB (e.g., 4.0). Linux/macOS only.')
 @click.option('--exclude', 'exclude_paths', multiple=True, type=click.Path(), help='Directory name to exclude. Can be used multiple times.')
-def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, ...]):
+def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[float], exclude_paths: Tuple[str, ...]):
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
@@ -170,6 +187,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
     # --- Merge CLI arguments and config file settings ---
     # CLI options take precedence over the config file.
     final_workers = workers if workers != 3 else app_config.workers
+    final_memory_limit = memory_limit_gb if memory_limit_gb is not None else app_config.memory_limit_gb
 
     # Prepare exclusion list
     final_exclude_list = {path.lower() for path in exclude_paths}
@@ -195,6 +213,8 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
         return # Exit the command gracefully
 
     click.echo(f"Starting scan with {final_workers} workers...")
+    if final_memory_limit and sys.platform != "win32":
+        click.echo(click.style(f"Applying a soft memory limit of {final_memory_limit:.2f} GB per worker.", fg="blue"))
 
     def get_file_chunks(chunk_size: int):
         """Yields chunks of file paths from the scanner."""
@@ -255,7 +275,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, exclude_paths: Tuple[str, 
             pbar.set_description("Processing files...")
             # --- Submit the filtered chunk for processing ---
             future_to_path = {
-                executor.submit(process_file_wrapper, path, results_queue): path for path in files_to_process_chunk
+                executor.submit(process_file_wrapper, path, results_queue, final_memory_limit): path for path in files_to_process_chunk
             }
 
             processed_in_chunk = 0

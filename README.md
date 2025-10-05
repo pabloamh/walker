@@ -94,6 +94,11 @@ scan_dirs = []
 # It supports glob patterns (e.g., "*.egg-info").
 exclude_dirs = [
     "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".idea",
+    ".vscode",
     "__pycache__",
     ".venv",
     ".git",
@@ -108,6 +113,12 @@ exclude_dirs = [
 # PII (Personally Identifiable Information) detection. The default is English.
 # The first language in the list is the primary one.
 pii_languages = ["en", "es"]
+
+# memory_limit_gb: A soft memory limit (in Gigabytes) for each worker process.
+# This is useful on systems with limited RAM to prevent the OS from freezing.
+# For example, `4.0` would limit each worker to 4 GB of memory.
+# This feature is only supported on Linux and macOS. It is ignored on Windows.
+# memory_limit_gb = 4.0
 
 # embedding_model_path: Path to a locally saved sentence-transformer model.
 # If set, the application will not need internet access to download it.

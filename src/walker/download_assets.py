@@ -61,4 +61,11 @@ if __name__ == "__main__":
         model_name = get_spacy_model_name(lang)
         download_spacy_model(model_name, lang)
     cache_tldextract_list(models_dir / 'tldextract_cache')
+
     print("\nAll offline assets are ready.")
+    print("\n--- IMPORTANT ---")
+    print("The AI models used for text analysis are memory-intensive.")
+    print("Each worker process can consume 1.5-2.5 GB of RAM.")
+    print("On systems with limited memory (e.g., 16 GB or less), it is highly recommended to:")
+    print("1. Set `workers = 1` or `workers = 2` in your 'walker.toml'.")
+    print("2. Set `memory_limit_gb = 4.0` in your 'walker.toml' to prevent system freezes (on Linux/macOS).")

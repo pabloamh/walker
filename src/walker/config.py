@@ -14,6 +14,7 @@ class Config:
     exclude_dirs: List[str] = attrs.field(factory=list)
     scan_dirs: List[str] = attrs.field(factory=list)
     pii_languages: List[str] = attrs.field(factory=lambda: ["en"])
+    memory_limit_gb: Optional[float] = None
     embedding_model_path: Optional[str] = None
 
 
@@ -46,5 +47,6 @@ def load_config() -> Config:
         exclude_dirs=walker_config.get("exclude_dirs", []),
         scan_dirs=walker_config.get("scan_dirs", []),
         pii_languages=walker_config.get("pii_languages", ["en"]),
+        memory_limit_gb=walker_config.get("memory_limit_gb"),
         embedding_model_path=walker_config.get("embedding_model_path"),
     )
