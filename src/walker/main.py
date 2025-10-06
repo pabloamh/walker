@@ -392,39 +392,37 @@ def find_image_dupes(threshold: int):
         hashes = {path: imagehash.hex_to_hash(phash) for path, phash in images}
         paths = list(hashes.keys())
 
-        # --- Efficiently group similar images ---
+        # --- Group similar images ---
         groups = []
         if threshold == 0:
             # Fast path for exact duplicates
             from collections import defaultdict
             hash_groups = defaultdict(list)
-            for path, phash_obj in hashes.items():
-                hash_groups[phash_obj].append(path)
+            for path, phash_str in images:
+                hash_groups[phash_str].append(path)
             
             for group_paths in hash_groups.values():
                 if len(group_paths) > 1:
                     groups.append(sorted(group_paths))
         else:
-            # Grouping for similar images (threshold > 0)
-            processed_indices = set()
-            for i in range(len(paths)):
-                if i in processed_indices:
-                    continue
+            # Efficiently find similar images using NumPy broadcasting
+            # 1. Convert hex hashes to a NumPy array of uint8
+            hash_array = np.array([h.hash.flatten() for h in hashes.values()], dtype=np.uint8)
 
-                current_group = {paths[i]}
-                processed_indices.add(i)
+            # 2. Calculate Hamming distance matrix efficiently
+            # The formula (a != b).sum() is equivalent to the Hamming distance.
+            # By using broadcasting, we can compute all pairs at once.
+            diff_matrix = np.not_equal(hash_array[np.newaxis, :, :], hash_array[:, np.newaxis, :])
+            distance_matrix = np.sum(diff_matrix, axis=2)
 
-                for j in range(i + 1, len(paths)):
-                    if j in processed_indices:
-                        continue
-                    
-                    # Compare perceptual hashes
-                    if hashes[paths[i]] - hashes[paths[j]] <= threshold:
-                        current_group.add(paths[j])
-                        processed_indices.add(j)
-                
-                if len(current_group) > 1:
-                    groups.append(sorted(list(current_group)))
+            # 3. Find pairs below the threshold
+            # We use np.triu with k=1 to get the upper triangle of the matrix, avoiding self-comparisons and duplicates.
+            similar_indices = np.argwhere((distance_matrix <= threshold) & (np.triu(np.ones_like(distance_matrix), k=1) == 1))
+
+            # 4. Group the pairs into connected components (sets of similar images)
+            from .utils import group_pairs
+            path_groups = group_pairs(similar_indices, paths)
+            groups = [sorted(g) for g in path_groups]
 
         if not groups:
             click.echo("No similar images found with the given threshold.")
@@ -471,35 +469,14 @@ def find_similar_text(threshold: float):
             click.echo("No similar text files found above the threshold.")
             return
 
-        # --- Grouping using a Disjoint Set Union (DSU) data structure ---
-        parent = list(range(len(paths)))
-        def find(i):
-            if parent[i] == i:
-                return i
-            parent[i] = find(parent[i])
-            return parent[i]
+        # --- Group the pairs into connected components ---
+        from .utils import group_pairs
+        groups = group_pairs(similar_pairs, paths)
 
-        def union(i, j):
-            root_i = find(i)
-            root_j = find(j)
-            if root_i != root_j:
-                parent[root_j] = root_i
-
-        for i, j in similar_pairs:
-            union(i, j)
-
-        groups = {}
-        for i in range(len(paths)):
-            root = find(i)
-            if root not in groups:
-                groups[root] = []
-            groups[root].append(paths[i])
-
-        for i, group_paths in enumerate(groups.values(), 1):
-            if len(group_paths) > 1:
-                click.echo(f"\n--- Similar Group {i} ---")
-                for path in sorted(group_paths):
-                    click.echo(f"  - {path}")
+        for i, group in enumerate(groups, 1):
+            click.echo(f"\n--- Similar Group {i} ---")
+            for path in sorted(group):
+                click.echo(f"  - {path}")
     finally:
         db_session.close()
 
