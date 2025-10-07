@@ -185,6 +185,44 @@ class FileProcessor:
         except (zipfile.BadZipFile, tarfile.TarError):
             return None # Not a valid archive or corrupted
 
+    def _process_text_pii_in_chunks(self, file_path: Path, encoding: str = "utf-8") -> bool:
+        """
+        Scans a text file for PII in chunks to avoid loading the whole file into memory.
+        Returns True as soon as PII is found.
+        """
+        try:
+            app_config = config.load_config()
+            primary_language = app_config.pii_languages[0]
+            # Presidio's default character limit is 1,000,000. We'll use a smaller chunk size.
+            chunk_size = 500_000 
+
+            with file_path.open("r", encoding=encoding, errors="ignore") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    pii_results = pii_analyzer.analyze(text=chunk, language=primary_language)
+                    if pii_results:
+                        return True # Found PII, no need to scan further
+            return False
+        except Exception as e:
+            logging.warning(f"Error during chunked PII scan for {file_path}: {e}")
+            return False
+
+    def _detect_pii(self, content: Optional[str]) -> Optional[bool]:
+        """Analyzes extracted content for PII."""
+        if not content:
+            return None
+        try:
+            app_config = config.load_config()
+            # Truncate content to avoid errors with very large files in presidio.
+            truncated_content = content[:1_000_000]
+            pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0])
+            return bool(pii_results)
+        except Exception:
+            return None
+
     def _extract_text_content(self) -> Optional[str]:
         """Extracts text content from various file types based on MIME type."""
         try:
@@ -300,15 +338,14 @@ class FileProcessor:
             if metadata_kwargs["content"]:
                 embedding = embedding_model.encode(metadata_kwargs["content"])
                 metadata_kwargs["content_embedding"] = embedding.tobytes()
-
-                # Analyze content for PII
-                # Truncate content to avoid errors with very large files in presidio.
-                # The default limit is 1,000,000 characters.
-                truncated_content = metadata_kwargs["content"][:1_000_000]
-                app_config = config.load_config()
-                pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0])
-                metadata_kwargs["has_pii"] = bool(pii_results)
-
+            
+            # --- PII Detection ---
+            # If content was fully extracted, analyze it.
+            if metadata_kwargs["content"]:
+                metadata_kwargs["has_pii"] = self._detect_pii(metadata_kwargs["content"])
+            # For plain text files that might be too large, scan them in chunks without storing content.
+            elif self.mime_type and self.mime_type.startswith("text/plain") and metadata_kwargs["size_bytes"] > 1_000_000:
+                metadata_kwargs["has_pii"] = self._process_text_pii_in_chunks(self.file_path)
 
             return FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:

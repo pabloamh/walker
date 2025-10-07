@@ -1,8 +1,7 @@
 # Walker File Indexer
 
 A powerful and efficient file indexer that recursively scans a directory, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis.
-
-The application is built with a multi-threaded architecture to process files concurrently, making it fast and suitable for large collections of files.
+The application is built with a multiprocessing architecture to process files concurrently, making it fast and suitable for large collections of files.
 
 ## Features
 
@@ -20,13 +19,13 @@ The application is built with a multi-threaded architecture to process files con
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Archive Indexing**: Lists the contents of compressed files (`.zip`, `.tar`, `.tar.gz`, etc.).
 - **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
-- **Command-Line Interface**: Easy-to-use CLI built with Click.
+- **Powerful Command-Line Interface**: Easy-to-use CLI built with Click for indexing and reporting.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 - **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
 - **Semantic Search**: Performs powerful, meaning-based searches on file content.
-- **PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII).
-- **Reporting**: Includes commands to find duplicate files, textually similar documents, and summarize disk usage.
+- **Memory-Efficient PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII), even on multi-gigabyte files.
+- **High-Performance Reporting**: Includes highly optimized commands to find duplicate files, similar images, and textually similar documents.
 - **Configuration File**: Uses a `walker.toml` file for persistent settings.
 
 ## Prerequisites

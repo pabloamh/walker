@@ -33,7 +33,7 @@ def get_spacy_model_name(lang_code: str) -> str:
     # This mapping can be expanded for more languages
     model_map = {
         "en": "en_core_web_lg",
-        "es": "es_core_news_lg",
+        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
         "fr": "fr_core_news_lg",
     }
     return model_map.get(lang_code, f"{lang_code}_core_news_lg")
