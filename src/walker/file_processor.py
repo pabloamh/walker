@@ -46,6 +46,17 @@ def get_embedding_model() -> SentenceTransformer:
 # Load models once when the module is imported. This is crucial for performance,
 # as it prevents reloading the models for every file in a multi-processing environment.
 
+def get_spacy_model_name(lang_code: str) -> str:
+    """Gets the default spaCy model name for a given language code."""
+    # This mapping can be expanded for more languages
+    model_map = {
+        "en": "en_core_web_lg",
+        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
+        "fr": "fr_core_news_lg",
+    }
+    return model_map.get(lang_code, f"{lang_code}_core_news_lg")
+
+
 def get_pii_analyzer() -> AnalyzerEngine:
     """Loads the Presidio AnalyzerEngine with languages from config."""
     app_config = config.load_config()
@@ -63,17 +74,6 @@ def get_pii_analyzer() -> AnalyzerEngine:
 
 embedding_model = get_embedding_model()
 pii_analyzer = get_pii_analyzer()
-
-
-def get_spacy_model_name(lang_code: str) -> str:
-    """Gets the default spaCy model name for a given language code."""
-    # This mapping can be expanded for more languages
-    model_map = {
-        "en": "en_core_web_lg",
-        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
-        "fr": "fr_core_news_lg",
-    }
-    return model_map.get(lang_code, f"{lang_code}_core_news_lg")
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
