@@ -17,9 +17,14 @@ def scan_directory(root_path: Union[str, Path], exclude: Set[str]) -> Generator[
 
     try:
         for entry in p.iterdir():
+            # Prepare both the name and the full path for checking against exclusions.
             entry_name_lower = entry.name.lower()
+            entry_path_lower = str(entry.resolve()).lower()
+
             # Check for exclusion
-            if entry_name_lower in direct_excludes or any(fnmatch.fnmatch(entry_name_lower, pattern) for pattern in glob_patterns):
+            if (entry_name_lower in direct_excludes or
+                entry_path_lower in direct_excludes or
+                any(fnmatch.fnmatch(entry_name_lower, pattern) for pattern in glob_patterns)):
                 continue
 
             if entry.is_dir(follow_symlinks=False):
