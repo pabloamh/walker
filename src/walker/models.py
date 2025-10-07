@@ -32,16 +32,16 @@ class FileIndex(Base):
 
     id = Column(Integer, primary_key=True)
     path = Column(String, nullable=False, unique=True)
-    filename = Column(String, nullable=False)
-    size_bytes = Column(BigInteger, nullable=False)
-    mtime = Column(Float, nullable=False)
-    crypto_hash = Column(String(64), nullable=False)  # For SHA-256
-    mime_type = Column(String, nullable=True)
-    perceptual_hash = Column(String, nullable=True)   # For images
-    content = Column(String, nullable=True)           # For documents
-    exif_data = Column(JSON, nullable=True)           # For image/media metadata
-    content_embedding = Column(BLOB, nullable=True)   # For text embeddings
-    has_pii = Column(Boolean, nullable=True)          # For PII detection
+    filename = Column(String, nullable=False, index=True)
+    size_bytes = Column(BigInteger, nullable=False, index=True)
+    mtime = Column(Float, nullable=False, index=True)
+    crypto_hash = Column(String(64), nullable=False, index=True)  # For SHA-256
+    mime_type = Column(String, nullable=True, index=True)
+    perceptual_hash = Column(String, nullable=True, index=True)   # For images
+    content = Column(String, nullable=True)                       # Full-text search is complex; not indexing by default
+    exif_data = Column(JSON, nullable=True)                       # JSON columns are generally not indexed
+    content_embedding = Column(BLOB, nullable=True)               # Vector indexes are special; not a standard index
+    has_pii = Column(Boolean, nullable=True, index=True)          # For PII detection
 
     @classmethod
     def from_metadata(cls, metadata: FileMetadata) -> "FileIndex":

@@ -99,31 +99,18 @@ class Indexer:
         if chunk:
             yield chunk
 
-    def _process_chunk(self, db_session: Session, path_chunk: list[Path]) -> list[Path]:
-        """Filters a chunk of paths to find new or modified files."""
-        files_to_process_chunk = []
-        scanned_files: Dict[str, Tuple[Path, float]] = {}
+    def _filter_chunk(self, path_chunk: list[Path], existing_files: Dict[str, float]) -> list[Path]:
+        """Filters a chunk of paths against an in-memory dictionary of existing files."""
+        files_to_process = []
         for p in path_chunk:
             try:
-                scanned_files[str(p.resolve())] = (p, p.stat().st_mtime)
+                path_str = str(p.resolve())
+                mtime = p.stat().st_mtime
+                if path_str not in existing_files or mtime > existing_files[path_str]:
+                    files_to_process.append(p)
             except FileNotFoundError:
                 continue
-
-        scanned_paths_set = set(scanned_files.keys())
-        existing_files_chunk = {
-            p: m
-            for p, m in db_session.query(models.FileIndex.path, models.FileIndex.mtime).filter(
-                models.FileIndex.path.in_(scanned_paths_set)
-            )
-        }
-
-        for path_str, mtime in existing_files_chunk.items():
-            if scanned_files[path_str][1] > mtime:
-                files_to_process_chunk.append(scanned_files[path_str][0])
-
-        new_paths = scanned_paths_set - set(existing_files_chunk.keys())
-        files_to_process_chunk.extend(scanned_files[path_str][0] for path_str in new_paths)
-        return files_to_process_chunk
+        return files_to_process
 
     def run(self):
         """Executes the entire indexing process."""
@@ -150,13 +137,19 @@ class Indexer:
         writer_thread.start()
 
         with ProcessPoolExecutor(max_workers=self.final_workers) as executor, \
-             database.SessionLocal() as db_session, \
              tqdm(desc="Scanning for files...", unit=" files", postfix={"processed": 0}) as pbar:
+
+            # --- Pre-load existing file index into memory for fast lookups ---
+            click.echo("Loading existing file index into memory...")
+            with database.get_session() as db_session:
+                existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).all()
+                existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
+            click.echo(f"Loaded {len(existing_files_map)} records from the index.")
 
             chunk_iterator = self._get_file_chunks(chunk_size=10000)
             for path_chunk in chunk_iterator:
                 pbar.set_description("Filtering files...")
-                files_to_process = self._process_chunk(db_session, path_chunk)
+                files_to_process = self._filter_chunk(path_chunk, existing_files_map)
                 pbar.update(len(path_chunk))
 
                 if not files_to_process:
