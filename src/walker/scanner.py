@@ -24,7 +24,8 @@ def scan_directory(root_path: Union[str, Path], exclude: Set[str]) -> Generator[
             # Check for exclusion
             if (entry_name_lower in direct_excludes or
                 entry_path_lower in direct_excludes or
-                any(fnmatch.fnmatch(entry_name_lower, pattern) for pattern in glob_patterns)):
+                any(fnmatch.fnmatch(entry_name_lower, pattern) for pattern in glob_patterns) or
+                any(fnmatch.fnmatch(entry_path_lower, pattern) for pattern in glob_patterns)):
                 continue
 
             if entry.is_dir(follow_symlinks=False):

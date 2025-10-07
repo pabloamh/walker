@@ -1,5 +1,6 @@
 # walker/database.py
 from sqlalchemy import create_engine
+from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker
 from threading import Lock
 from .models import Base
@@ -19,3 +20,12 @@ db_lock = Lock()
 def init_db():
     """Creates the database tables."""
     Base.metadata.create_all(bind=engine)
+
+@contextmanager
+def get_session():
+    """Provide a transactional scope around a series of operations."""
+    db_session = SessionLocal()
+    try:
+        yield db_session
+    finally:
+        db_session.close()
