@@ -316,7 +316,8 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
                     tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
             # Update the main progress bar's postfix after the chunk is done
-            pbar.postfix["processed"] += processed_in_chunk
+            current_processed = (pbar.postfix or {}).get("processed", 0)
+            pbar.postfix = f"processed={current_processed + processed_in_chunk}"
             pbar.refresh()
     # Signal the writer to stop and wait for it to finish
     results_queue.put(sentinel)

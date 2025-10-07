@@ -49,16 +49,31 @@ def get_embedding_model() -> SentenceTransformer:
 def get_pii_analyzer() -> AnalyzerEngine:
     """Loads the Presidio AnalyzerEngine with languages from config."""
     app_config = config.load_config()
-    # We need to create a new registry and load the NLP models for the specified languages.
-    # This is a more advanced setup to support multiple languages.
+    # To prevent noisy warnings about unsupported languages, we will explicitly
+    # create a provider configuration that only loads the models we need.
     from presidio_analyzer.nlp_engine import NlpEngineProvider
-    provider = NlpEngineProvider()
+    provider_config = {
+        "nlp_engine_name": "spacy",
+        "models": [{"lang_code": lang, "model_name": get_spacy_model_name(lang)} for lang in app_config.pii_languages]
+    }
+
+    provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     return AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=app_config.pii_languages)
 
 embedding_model = get_embedding_model()
 pii_analyzer = get_pii_analyzer()
 
+
+def get_spacy_model_name(lang_code: str) -> str:
+    """Gets the default spaCy model name for a given language code."""
+    # This mapping can be expanded for more languages
+    model_map = {
+        "en": "en_core_web_lg",
+        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
+        "fr": "fr_core_news_lg",
+    }
+    return model_map.get(lang_code, f"{lang_code}_core_news_lg")
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
