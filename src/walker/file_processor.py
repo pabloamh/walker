@@ -28,6 +28,9 @@ from .models import FileMetadata, FileIndex
 # Pillow >= 10.1.0 raises a DecompressionBombWarning for large images.
 # We trust the files we are scanning, so we can suppress this.
 warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+# Pillow also warns about palette images with transparency. This is common
+# and doesn't indicate an error for our purposes, so we can suppress it.
+warnings.filterwarnings("ignore", message="Palette images with Transparency expressed in bytes should be converted to RGBA images")
 
 # --- Model Loading ---
 def get_embedding_model() -> SentenceTransformer:
