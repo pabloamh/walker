@@ -64,8 +64,10 @@ def get_pii_analyzer() -> AnalyzerEngine:
     """Loads the Presidio AnalyzerEngine with languages from config."""
     app_config = config.load_config()
     # To prevent noisy warnings about unsupported languages, we will explicitly
-    # create a provider configuration that only loads the models we need.
+    # create a provider configuration that only loads the models and recognizers we need.
     from presidio_analyzer.nlp_engine import NlpEngineProvider
+    from presidio_analyzer.recognizer_registry import RecognizerRegistry
+
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [{"lang_code": lang, "model_name": get_spacy_model_name(lang)} for lang in app_config.pii_languages]
@@ -73,7 +75,12 @@ def get_pii_analyzer() -> AnalyzerEngine:
 
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
-    return AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=app_config.pii_languages)
+
+    # Create a registry and explicitly load recognizers for the supported languages
+    registry = RecognizerRegistry()
+    registry.load_predefined_recognizers(languages=app_config.pii_languages)
+
+    return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
 
 embedding_model = get_embedding_model()
 pii_analyzer = get_pii_analyzer()
