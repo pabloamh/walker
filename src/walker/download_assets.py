@@ -42,15 +42,23 @@ def run_download():
     """Main function to download all required offline assets."""
 
     # Define paths relative to this script's location for robustness.
-    models_dir = Path(__file__).parent / "models"
+    script_dir = Path(__file__).parent
+    models_dir = script_dir / "models"
+    models_dir.mkdir(exist_ok=True)
+
+    print("--- Starting asset download process ---")
+    print(f"All assets will be saved in: {models_dir.resolve()}")
 
     # Download sentence transformer model
     download_sentence_transformer('all-MiniLM-L6-v2', models_dir / 'all-MiniLM-L6-v2')
+
     # Download spaCy models for each configured PII language
     app_config = config.load_config()
+    print(f"\nPII detection is configured for: {app_config.pii_languages}")
     for lang in app_config.pii_languages:
         model_name = file_processor.get_spacy_model_name(lang)
         download_spacy_model(model_name, lang)
+
     cache_tldextract_list(models_dir / 'tldextract_cache')
 
     print("\nAll offline assets are ready.")
