@@ -184,6 +184,14 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
     )
     indexer.run()
 
+@cli.command(name="download-assets")
+def download_assets():
+    """
+    Downloads and caches all necessary models for offline use.
+    """
+    from . import download_assets
+    download_assets.run_download()
+
 @cli.command(name="find-dupes")
 def find_dupes():
     """Finds files with identical content based on their SHA-256 hash."""

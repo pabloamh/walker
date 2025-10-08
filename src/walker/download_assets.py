@@ -4,6 +4,7 @@ import spacy
 import subprocess
 from pathlib import Path
 
+import click
 from . import config, file_processor
 
 from sentence_transformers import SentenceTransformer
@@ -38,8 +39,8 @@ def cache_tldextract_list(cache_dir: Path):
     subprocess.run(["python", "-c", "import tldextract; tldextract.TLDExtract()"], env=env, check=True)
     print("...caching complete!")
 
-if __name__ == "__main__":
-    app_config = config.load_config()
+def run_download():
+    """Main function to download all required offline assets."""
 
     # Define paths relative to this script's location for robustness.
     models_dir = Path(__file__).parent / "models"
@@ -47,6 +48,7 @@ if __name__ == "__main__":
     # Download sentence transformer model
     download_sentence_transformer('all-MiniLM-L6-v2', models_dir / 'all-MiniLM-L6-v2')
     # Download spaCy models for each configured PII language
+    app_config = config.load_config()
     for lang in app_config.pii_languages:
         model_name = file_processor.get_spacy_model_name(lang)
         download_spacy_model(model_name, lang)
@@ -59,3 +61,6 @@ if __name__ == "__main__":
     print("On systems with limited memory (e.g., 16 GB or less), it is highly recommended to:")
     print("1. Set `workers = 1` or `workers = 2` in your 'walker.toml'.")
     print("2. Set `memory_limit_gb = 4.0` in your 'walker.toml' to prevent system freezes (on Linux/macOS).")
+
+if __name__ == "__main__":
+    run_download()

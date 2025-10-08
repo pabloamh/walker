@@ -157,8 +157,8 @@ The application uses several components that may require online access to downlo
 On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
 
 From your project's root directory, run:
-```bash
-poetry run python src/walker/download_assets.py
+```sh
+poetry run python -m walker.main download-assets
 ```
 
 This script will perform the following actions:
