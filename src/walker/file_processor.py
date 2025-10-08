@@ -1,6 +1,7 @@
 # walker/file_processor.py
 import email
 import logging
+import functools
 import warnings
 import hashlib
 import json
@@ -33,6 +34,7 @@ warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
 warnings.filterwarnings("ignore", message="Palette images with Transparency expressed in bytes should be converted to RGBA images")
 
 # --- Model Loading ---
+@functools.lru_cache(maxsize=None)
 def get_embedding_model() -> SentenceTransformer:
     """Loads the SentenceTransformer model."""
     app_config = config.load_config()
@@ -46,9 +48,6 @@ def get_embedding_model() -> SentenceTransformer:
 
     return SentenceTransformer(model_name_or_path, device='cpu')
 
-# Load models once when the module is imported. This is crucial for performance,
-# as it prevents reloading the models for every file in a multi-processing environment.
-
 def get_spacy_model_name(lang_code: str) -> str:
     """Gets the default spaCy model name for a given language code."""
     # This mapping can be expanded for more languages
@@ -59,7 +58,7 @@ def get_spacy_model_name(lang_code: str) -> str:
     }
     return model_map.get(lang_code, f"{lang_code}_core_news_lg")
 
-
+@functools.lru_cache(maxsize=None)
 def get_pii_analyzer() -> AnalyzerEngine:
     """Loads the Presidio AnalyzerEngine with languages from config."""
     app_config = config.load_config()
@@ -81,9 +80,6 @@ def get_pii_analyzer() -> AnalyzerEngine:
     registry.load_predefined_recognizers(languages=app_config.pii_languages)
 
     return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
-
-embedding_model = get_embedding_model()
-pii_analyzer = get_pii_analyzer()
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
@@ -216,6 +212,7 @@ class FileProcessor:
         Returns True as soon as PII is found.
         """
         try:
+            pii_analyzer = get_pii_analyzer()
             app_config = config.load_config()
             primary_language = app_config.pii_languages[0]
             # Presidio's default character limit is 1,000,000. We'll use a smaller chunk size.
@@ -240,6 +237,7 @@ class FileProcessor:
         if not content:
             return None
         try:
+            pii_analyzer = get_pii_analyzer()
             app_config = config.load_config()
             # Truncate content to avoid errors with very large files in presidio.
             truncated_content = content[:1_000_000]
@@ -361,6 +359,7 @@ class FileProcessor:
 
             # If content was extracted, generate an embedding for it.
             if metadata_kwargs["content"]:
+                embedding_model = get_embedding_model()
                 embedding = embedding_model.encode(metadata_kwargs["content"])
                 metadata_kwargs["content_embedding"] = embedding.tobytes()
             
