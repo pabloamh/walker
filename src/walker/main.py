@@ -1,27 +1,16 @@
 # walker/main.py
 import logging
-import queue
-import resource
 from pathlib import Path
 from typing import Optional, Tuple
 
-import click, attrs
-from sqlalchemy.orm import Session
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-# Removed imagehash, tqdm, numpy as they are now in Reporter/Indexer
+import click
 
 from . import config, database, models
-from .models import FileMetadata
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
     log_file = Path(__file__).parent / "walker.log"
-    # Configure logging to write to a file, appending to it if it exists.
-    # Only messages of level WARNING and above will be logged.
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filename=log_file, filemode='a')
-
-sentinel = object()  # A signal to stop the writer thread.
 
 # Default directories to exclude on Windows when scanning a root drive.
 # These are case-insensitive.
@@ -63,86 +52,6 @@ def format_bytes(size: int) -> str:
         size /= power
         n += 1
     return f"{size:.2f} {power_labels[n]}B"
-
-def db_writer_worker(db_queue: queue.Queue, batch_size: int):
-    """
-    A dedicated worker that pulls results from the queue and writes them to the DB.
-    Uses a batched "upsert" strategy for high performance with SQLite.
-    This function creates its own database session to ensure thread safety.
-    """
-    def commit_batch(session: Session, current_batch: list):
-        """Commits a batch of records to the database."""
-        if not current_batch:
-            return 0
-        
-        with database.db_lock:
-            try:
-                stmt = sqlite_insert(models.FileIndex).values(current_batch)
-                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
-                stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
-                session.execute(stmt)
-                session.commit()
-            except Exception as e:
-                # This can happen if the DB is locked by another process.
-                if "database is locked" in str(e).lower():
-                    click.echo(click.style("\nDatabase is locked by another process. Please close other connections and try again.", fg="red"), err=True)
-                    # We can't continue, so we'll re-raise to stop the thread.
-                    raise
-        count = len(current_batch)
-        current_batch.clear()
-        return count
-
-    with database.SessionLocal() as db_session:
-        click.echo("DB writer worker started.")
-        batch = []
-        total_processed = 0
-
-        while True:
-            item: Optional[FileMetadata] = db_queue.get()
-            if item is sentinel:
-                total_processed += commit_batch(db_session, batch)
-                break
-
-            if item:
-                batch.append(attrs.asdict(item))
-                if len(batch) >= batch_size:
-                    total_processed += commit_batch(db_session, batch)
-
-            db_queue.task_done()
-
-    click.echo(f"DB writer finished. A total of {total_processed} records were written to the database.")
-
-def set_memory_limit(limit_gb: Optional[float]):
-    """Sets a soft memory limit for the current process (Linux/macOS only)."""
-    if limit_gb is None or sys.platform == "win32":
-        return
-
-    try:
-        limit_bytes = int(limit_gb * 1024**3)
-        # Set both soft and hard limits for virtual memory
-        resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
-    except (ValueError, resource.error) as e:
-        # This might fail if the limit is too low or due to permissions.
-        # We'll log it but not stop the worker.
-        logging.warning(f"Could not set memory limit: {e}")
-
-def process_file_wrapper(path: Path, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> Optional[FileMetadata]:
-    """Wrapper to instantiate and run the FileProcessor in a separate process/thread."""
-    import warnings
-    from PIL import Image
-
-    # Filter warnings within the worker process.
-    warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
-
-    set_memory_limit(memory_limit_gb)
-
-    # This is where you import the class to avoid pickling issues with some executors
-    from .file_processor import FileProcessor
-    processor = FileProcessor(path)
-    result = processor.process()
-    if result:
-        shared_queue.put(result)
-    return result is not None # Return True if processed, False otherwise
 
 @click.group()
 def cli():

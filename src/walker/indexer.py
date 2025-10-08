@@ -12,13 +12,7 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from . import config, database, models, scanner
-from .main import (
-    DEFAULT_MACOS_EXCLUDES,
-    DEFAULT_WINDOWS_EXCLUDES,
-    db_writer_worker,
-    process_file_wrapper,
-    sentinel,
-)
+from . import worker
 
 
 class Indexer:
@@ -71,10 +65,10 @@ class Indexer:
         if is_root_scan:
             if sys.platform == "win32":
                 click.echo("Windows root drive scan detected. Applying default system exclusions.")
-                self.final_exclude_list.update(DEFAULT_WINDOWS_EXCLUDES)
+                self.final_exclude_list.update(models.DEFAULT_WINDOWS_EXCLUDES)
             elif sys.platform == "darwin":  # macOS
                 click.echo("macOS root drive scan detected. Applying default system exclusions.")
-                self.final_exclude_list.update({p.lower() for p in DEFAULT_MACOS_EXCLUDES})
+                self.final_exclude_list.update({p.lower() for p in models.DEFAULT_MACOS_EXCLUDES})
             elif sys.platform.startswith("linux"):
                 click.echo("Linux root drive scan detected. Consider excluding /proc, /sys, /dev, /run.")
 
@@ -133,7 +127,7 @@ class Indexer:
 
         manager = multiprocessing.Manager()
         results_queue = manager.Queue()
-        writer_thread = threading.Thread(target=db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
+        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
         writer_thread.start()
 
         with ProcessPoolExecutor(max_workers=self.final_workers) as executor, \
@@ -157,7 +151,7 @@ class Indexer:
 
                 pbar.set_description("Processing files...")
                 future_to_path = {
-                    executor.submit(process_file_wrapper, path, results_queue, self.final_memory_limit): path
+                    executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
                     for path in files_to_process
                 }
 
@@ -176,6 +170,6 @@ class Indexer:
                 pbar.postfix["processed"] = current_processed + processed_in_chunk
                 pbar.refresh()
 
-        results_queue.put(sentinel)
+        results_queue.put(worker.sentinel)
         writer_thread.join()
         click.echo("All files have been processed and indexed.")

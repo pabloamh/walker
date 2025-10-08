@@ -23,6 +23,34 @@ class FileMetadata:
     content_embedding: Optional[bytes]
     has_pii: Optional[bool]
 
+# Default directories to exclude on Windows when scanning a root drive.
+DEFAULT_WINDOWS_EXCLUDES = [
+    "windows",
+    "programdata",
+    "program files",
+    "program files (x86)",
+    "pagefile.sys",
+    "hiberfil.sys",
+    "swapfile.sys",
+    "$recycle.bin",
+    "system volume information",
+    "msocache",
+]
+
+# Default directories to exclude on macOS when scanning from the root.
+DEFAULT_MACOS_EXCLUDES = [
+    "/.DocumentRevisions-V100",
+    "/.fseventsd",
+    "/.Spotlight-V100",
+    "/.Trashes",
+    "/private",
+    "/dev",
+    "/System",
+    "/Library",
+    "/Applications",
+    "/Users/*/Library",
+]
+
 
 # --- SQLAlchemy ORM class for database persistence ---
 Base = declarative_base()
