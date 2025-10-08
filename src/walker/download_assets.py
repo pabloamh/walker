@@ -4,7 +4,6 @@ import spacy
 import subprocess
 from pathlib import Path
 
-import click
 from . import config, file_processor
 
 from sentence_transformers import SentenceTransformer

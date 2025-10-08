@@ -2,7 +2,6 @@
 import logging
 import queue
 import resource
-import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -71,8 +70,6 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
     Uses a batched "upsert" strategy for high performance with SQLite.
     This function creates its own database session to ensure thread safety.
     """
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
     def commit_batch(session: Session, current_batch: list):
         """Commits a batch of records to the database."""
         if not current_batch:
