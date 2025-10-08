@@ -50,7 +50,7 @@ def run_download():
     print(f"All assets will be saved in: {models_dir.resolve()}")
 
     # Download sentence transformer model
-    download_sentence_transformer('all-MiniLM-L6-v2', models_dir / 'all-MiniLM-L6-v2')
+    download_sentence_transformer('all-MiniLM-L6-v2', models_dir)
 
     # Download spaCy models for each configured PII language
     app_config = config.load_config()
