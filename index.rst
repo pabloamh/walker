@@ -8,7 +8,7 @@ Welcome to Walker's documentation!
    cli
    api
 
-.. include:: ../../../README.md
+.. include:: ../../README.md
    :parser: myst_parser.sphinx_
 
 Indices and tables

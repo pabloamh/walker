@@ -50,6 +50,10 @@ source_suffix = {
 html_theme = 'furo'
 html_static_path = ['_static']
 
+# -- HTML Theme Options ------------------------------------------------------
+# The path to the logo file, relative to this configuration file.
+html_logo = '_static/logo.png'
+
 # -- Autodoc settings --------------------------------------------------------
 autodoc_member_order = 'bysource'
 
