@@ -130,8 +130,9 @@ class Indexer:
         writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
         writer_thread.start()
 
+        postfix_data = {"processed": 0}
         with ProcessPoolExecutor(max_workers=self.final_workers) as executor, \
-             tqdm(desc="Scanning for files...", unit=" files", postfix={"processed": 0}) as pbar:
+             tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
 
             # --- Pre-load existing file index into memory for fast lookups ---
             click.echo("Loading existing file index into memory...")
@@ -166,9 +167,9 @@ class Indexer:
                         logging.error(error_message)
                         tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
-                current_processed = pbar.postfix["processed"]
-                pbar.postfix["processed"] = current_processed + processed_in_chunk
-                pbar.refresh()
+                postfix_data["processed"] += processed_in_chunk
+                pbar.set_postfix(postfix_data)
+
 
         results_queue.put(worker.sentinel)
         writer_thread.join()
