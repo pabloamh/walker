@@ -115,22 +115,46 @@ class Reporter:
     def find_similar_text(self, threshold: float):
         """Finds files with similar text content using vector embeddings."""
         with database.get_session() as db_session:
-            click.echo("Querying for files with text content...")
-            results = db_session.query(models.FileIndex.path, models.FileIndex.content_embedding).filter(
-                models.FileIndex.content_embedding.isnot(None)
-            ).all()
+            click.echo("Querying for files with text embeddings...")
+            query = db_session.query(models.FileIndex.path, models.FileIndex.content_embedding).filter(
+                models.FileIndex.content_embedding.isnot(None))
 
-            if len(results) < 2:
+            count = query.count()
+            if count < 2:
                 click.echo("Not enough text files in the index to compare.")
                 return
 
-            click.echo(f"Found {len(results)} text files. Calculating similarities...")
+            click.echo(f"Found {count} text files. Calculating similarities...")
+
+            # This is a memory-intensive operation. We'll process in chunks to avoid OOM errors.
+            chunk_size = 2000  # Adjust based on typical embedding size and available RAM
+            similar_pairs = []
+            
+            # Pre-fetch all data to avoid repeated DB queries inside the loop.
+            results = query.all()
             paths = [r.path for r in results]
             embeddings = np.array([np.frombuffer(r.content_embedding, dtype=np.float32) for r in results])
-            similarity_matrix = cosine_similarity(embeddings)
-            similar_pairs = np.argwhere(np.triu(similarity_matrix, k=1) >= threshold)
 
-            if similar_pairs.shape[0] == 0:
+            with tqdm(total=(count // chunk_size) ** 2 // 2, desc="Comparing chunks") as pbar:
+                for i in range(0, count, chunk_size):
+                    chunk_i_embeddings = embeddings[i:i + chunk_size]
+
+                    # Compare within the chunk (upper triangle)
+                    sim_matrix_intra = cosine_similarity(chunk_i_embeddings)
+                    indices_i, indices_j = np.where(np.triu(sim_matrix_intra, k=1) >= threshold)
+                    for i1, j1 in zip(indices_i, indices_j):
+                        similar_pairs.append((i + i1, i + j1))
+
+                    # Compare chunk_i with all subsequent chunks
+                    for j in range(i + chunk_size, count, chunk_size):
+                        chunk_j_embeddings = embeddings[j:j + chunk_size]
+                        sim_matrix_inter = cosine_similarity(chunk_i_embeddings, chunk_j_embeddings)
+                        indices_i, indices_j = np.where(sim_matrix_inter >= threshold)
+                        for i1, j1 in zip(indices_i, indices_j):
+                            similar_pairs.append((i + i1, j + j1))
+                        pbar.update(1)
+
+            if not similar_pairs:
                 click.echo("No similar text files found above the threshold.")
                 return
 
@@ -142,29 +166,39 @@ class Reporter:
 
     def search_content(self, full_query: str, limit: int):
         """Performs a semantic search for files based on text content."""
-        from .file_processor import embedding_model
+        from .file_processor import get_embedding_model
 
         with database.get_session() as db_session:
             click.echo(f"Searching for files with content similar to: '{full_query}'")
+            embedding_model = get_embedding_model()
             query_embedding = embedding_model.encode([full_query])
 
-            results = db_session.query(models.FileIndex.path, models.FileIndex.content_embedding).filter(
-                models.FileIndex.content_embedding.isnot(None)
-            ).all()
+            query = db_session.query(models.FileIndex.path, models.FileIndex.content_embedding).filter(
+                models.FileIndex.content_embedding.isnot(None))
 
-            if not results:
+            if query.count() == 0:
                 click.echo("No text files with embeddings found in the index.")
                 return
 
-            paths = [r.path for r in results]
-            file_embeddings = np.array([np.frombuffer(r.content_embedding, dtype=np.float32) for r in results])
+            # Process in chunks to keep memory usage low
+            chunk_size = 5000
+            all_results = []
 
-            similarities = cosine_similarity(query_embedding, file_embeddings)[0]
-            top_indices = np.argsort(similarities)[-limit:][::-1]
+            for i in tqdm(range(0, query.count(), chunk_size), desc="Searching"):
+                chunk = query.offset(i).limit(chunk_size).all()
+                chunk_paths = [r.path for r in chunk]
+                chunk_embeddings = np.array([np.frombuffer(r.content_embedding, dtype=np.float32) for r in chunk])
+                
+                similarities = cosine_similarity(query_embedding, chunk_embeddings)[0]
+                for j, score in enumerate(similarities):
+                    all_results.append((score, chunk_paths[j]))
+
+            # Sort all collected results by score and get the top N
+            all_results.sort(key=lambda x: x[0], reverse=True)
 
             click.echo(f"\n--- Top {limit} results ---")
-            for i in top_indices:
-                click.echo(f"Score: {similarities[i]:.4f} | {paths[i]}")
+            for score, path in all_results[:limit]:
+                click.echo(f"Score: {score:.4f} | {path}")
 
     def largest_files(self, limit: int):
         """Lists the largest files in the index by size."""

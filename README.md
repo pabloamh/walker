@@ -17,15 +17,15 @@ The application is built with a multiprocessing architecture to process files co
     - **Videos**: Extracts media metadata like resolution, duration, and codecs.
     - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
-- **Archive Indexing**: Lists the contents of compressed files (`.zip`, `.tar`, `.tar.gz`, etc.).
+- **Deep Archive Scanning**: Extracts and individually processes files within archives (`.zip`, `.tar`, etc.), treating them as virtual folders.
 - **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
 - **Powerful Command-Line Interface**: Easy-to-use CLI built with Click for indexing and reporting.
 - **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 - **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
-- **Semantic Search**: Performs powerful, meaning-based searches on file content.
-- **Memory-Efficient PII Detection**: Automatically scans text-based files for Personally Identifiable Information (PII), even on multi-gigabyte files.
-- **High-Performance Reporting**: Includes highly optimized commands to find duplicate files, similar images, and textually similar documents.
+- **Categorized PII Detection**: Scans for Personally Identifiable Information (PII) and reports the specific types found (e.g., `CREDIT_CARD_NUMBER`, `PHONE_NUMBER`).
+- **Semantic Search**: Performs powerful, meaning-based searches on file content using AI embeddings.
+- **Scalable & Memory-Efficient**: Optimized to handle hundreds of thousands of files without running out of memory during reporting.
 - **Configuration File**: Uses a `walker.toml` file for persistent settings.
 
 ## Prerequisites
@@ -164,7 +164,8 @@ poetry run python -m walker.main download-assets
 This script will perform the following actions:
 1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
 2.  **Download the `spaCy` language model** (`en_core_web_lg`) required for PII detection.
-3.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/walker/models/tldextract_cache`.
+3.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `walker.toml`.
+4.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/walker/models/tldextract_cache`.
 
 ### Step 2: Update Configuration for Offline Use
 
@@ -273,7 +274,7 @@ poetry run python -m walker.main type-summary
 
 #### List Files with PII
 
-This command lists all files that were flagged as potentially containing Personally Identifiable Information (PII) during the indexing process.
+This command lists all files flagged for containing PII and shows the specific categories of information found (e.g., `PERSON`, `PHONE_NUMBER`).
 
 ```bash
 poetry run python -m walker.main list-pii-files
