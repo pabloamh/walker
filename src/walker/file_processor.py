@@ -8,7 +8,8 @@ import json
 import os
 import tarfile
 import zipfile
-from typing import Optional, Tuple, Any, Union
+import tempfile
+from typing import Optional, Tuple, Any, Union, List, Generator
 
 import imagehash
 from bs4 import BeautifulSoup
@@ -32,6 +33,9 @@ warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
 # Pillow also warns about palette images with transparency. This is common
 # and doesn't indicate an error for our purposes, so we can suppress it.
 warnings.filterwarnings("ignore", message="Palette images with Transparency expressed in bytes should be converted to RGBA images")
+
+# Pillow can issue warnings for non-standard TIFF metadata, which is common.
+warnings.filterwarnings("ignore", category=UserWarning, module="PIL.TiffImagePlugin")
 
 # --- Model Loading ---
 @functools.lru_cache(maxsize=None)
@@ -100,9 +104,12 @@ class FileProcessor:
     """
     Encapsulates the logic for processing a single file to extract metadata.
     """
-    def __init__(self, file_path: Path):
+    def __init__(self, file_path: Path, virtual_path: Optional[str] = None, is_archived: bool = False):
         self.file_path = file_path
         self.mime_type: Optional[str] = None
+        # The virtual_path is used for files extracted from archives.
+        self.virtual_path = virtual_path or str(self.file_path)
+        self.is_archived = is_archived
 
     def _get_crypto_hash(self) -> str:
         """Calculates the SHA-256 hash of the file."""
@@ -188,31 +195,47 @@ class FileProcessor:
         except Exception:
             return None
 
-    def _process_archive(self) -> Optional[str]:
-        """Extracts the list of files from a compressed archive."""
+    def _process_archive(self) -> Generator[FileMetadata, None, None]:
+        """
+        Extracts files from a compressed archive to a temporary directory
+        and yields FileMetadata for each processed file within the archive.
+        """
         try:
-            file_list = []
-            if self.mime_type == "application/zip":
-                with zipfile.ZipFile(self.file_path, 'r') as zf:
-                    file_list = zf.namelist()
-            elif tarfile.is_tarfile(self.file_path):
-                with tarfile.open(self.file_path, 'r:*') as tf:
-                    file_list = tf.getnames()
-            
-            if file_list:
-                archive_data = {"files": file_list, "file_count": len(file_list)}
-                return json.dumps(archive_data)
-            return None
-        except (zipfile.BadZipFile, tarfile.TarError):
-            return None # Not a valid archive or corrupted
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                extracted_files = []
 
-    def _process_text_pii_in_chunks(self, file_path: Path, encoding: str = "utf-8") -> bool:
+                if self.mime_type == "application/zip":
+                    with zipfile.ZipFile(self.file_path, 'r') as zf:
+                        zf.extractall(temp_path)
+                        extracted_files = [temp_path / f for f in zf.namelist() if (temp_path / f).is_file()]
+                elif tarfile.is_tarfile(self.file_path):
+                    with tarfile.open(self.file_path, 'r:*') as tf:
+                        tf.extractall(temp_path)
+                        extracted_files = [temp_path / f for f in tf.getnames() if (temp_path / f).is_file()]
+
+                for extracted_file in extracted_files:
+                    # Construct the virtual path as requested.
+                    virtual_path = f"{self.virtual_path}/{extracted_file.relative_to(temp_path)}"
+                    processor = FileProcessor(extracted_file, virtual_path=virtual_path, is_archived=True)
+                    yield from processor.process()
+
+        except (zipfile.BadZipFile, tarfile.TarError, Exception) as e:
+            logging.warning(f"Could not process archive {self.file_path}: {e}")
+            return # Stop processing this archive if an error occurs
+
+    def _process_text_pii_in_chunks(self, file_path: Path, encoding: str = "utf-8") -> Optional[list[str]]:
+        # For very large files, first check if it's likely to be text.
+        if "text" not in self.mime_type:
+            return None
+
         """
         Scans a text file for PII in chunks to avoid loading the whole file into memory.
-        Returns True as soon as PII is found.
+        Returns a list of found PII types.
         """
         try:
             pii_analyzer = get_pii_analyzer()
+            found_pii_types: set[str] = set()
             app_config = config.load_config()
             primary_language = app_config.pii_languages[0]
             # Presidio's default character limit is 1,000,000. We'll use a smaller chunk size.
@@ -226,23 +249,23 @@ class FileProcessor:
                     
                     pii_results = pii_analyzer.analyze(text=chunk, language=primary_language)
                     if pii_results:
-                        return True # Found PII, no need to scan further
-            return False
+                        found_pii_types.update(p.entity_type for p in pii_results)
+            return sorted(list(found_pii_types)) if found_pii_types else None
         except Exception as e:
             logging.warning(f"Error during chunked PII scan for {file_path}: {e}")
-            return False
+            return None
 
-    def _detect_pii(self, content: Optional[str]) -> Optional[bool]:
+    def _detect_pii(self, content: Optional[str]) -> Optional[list[str]]:
         """Analyzes extracted content for PII."""
         if not content:
             return None
         try:
             pii_analyzer = get_pii_analyzer()
             app_config = config.load_config()
-            # Truncate content to avoid errors with very large files in presidio.
+            # Truncate content to avoid errors with very large files in presidio
             truncated_content = content[:1_000_000]
             pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0])
-            return bool(pii_results)
+            return sorted(list({pii.entity_type for pii in pii_results})) if pii_results else None
         except Exception:
             return None
 
@@ -250,6 +273,11 @@ class FileProcessor:
         """Extracts text content from various file types based on MIME type."""
         try:
             if not self.mime_type:
+                return None
+
+            # Do not attempt to extract text from binary formats like images/video/audio
+            # as it will likely be meaningless and is computationally expensive.
+            if self.mime_type.startswith(("image", "video", "audio")):
                 return None
 
             content = ""
@@ -267,9 +295,12 @@ class FileProcessor:
 
             # PDF documents
             elif self.mime_type == "application/pdf":
-                with pymupdf.open(self.file_path) as doc:
-                    for page in doc:
-                        content += page.get_text()
+                # PyMuPDF can be noisy with errors from its underlying C library.
+                # We'll suppress stderr to keep the console clean during processing.
+                with pymupdf.suppress_stderr():
+                    with pymupdf.open(self.file_path) as doc:
+                        for page in doc:
+                            content += page.get_text()
 
             # Microsoft Word documents
             elif self.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
@@ -304,28 +335,29 @@ class FileProcessor:
         except Exception:
             return None
 
-    def process(self) -> Optional[FileMetadata]:
+    def process(self) -> Generator[FileMetadata, None, None]:
         """
         Processes the file and returns a FileMetadata object.
+        If the file is an archive, it yields metadata for each file within it.
         """
         try:
             # --- Early exit for excluded file types ---
             if self.file_path.name.lower() in DEFAULT_EXCLUDED_FILENAMES:
-                return None
+                return
             if self.file_path.suffix.lower() in DEFAULT_EXCLUDED_EXTENSIONS:
-                return None
+                return
 
             # Handle cases where the file might be deleted between scanning and processing
             if not self.file_path.exists():
-                return None
+                return
 
             if not self.file_path.is_file():
-                return None
+                return
 
             self.mime_type = magic.from_file(str(self.file_path), mime=True)
             
             metadata_kwargs = {
-                "path": str(self.file_path),
+                "path": self.virtual_path,
                 "filename": self.file_path.name,
                 "size_bytes": (stat_result := self.file_path.stat()).st_size,
                 "mtime": stat_result.st_mtime,
@@ -335,8 +367,17 @@ class FileProcessor:
                 "content": None,
                 "exif_data": None,
                 "content_embedding": None,
-                "has_pii": None,
+                "pii_types": None,
+                "is_archived_file": self.is_archived,
             }
+
+            # --- Handle Archives Separately ---
+            if self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz"):
+                # First, yield the metadata for the archive file itself.
+                yield FileMetadata(**metadata_kwargs)
+                # Then, yield metadata for all files inside the archive.
+                yield from self._process_archive()
+                return # Stop processing for the archive file itself.
 
             if self.mime_type:
                 if self.mime_type.startswith("image"):
@@ -349,10 +390,6 @@ class FileProcessor:
                 elif self.mime_type.startswith("audio"):
                     # For audio, we also store media metadata in the 'exif_data' field.
                     metadata_kwargs["exif_data"] = self._process_audio()
-                elif self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz"):
-                    # For archives, we store the file list in the 'exif_data' field.
-                    metadata_kwargs["exif_data"] = self._process_archive()
-
                 
             # For any text-based format, try to extract content.
             metadata_kwargs["content"] = self._extract_text_content()
@@ -366,21 +403,24 @@ class FileProcessor:
             # --- PII Detection ---
             # If content was fully extracted, analyze it.
             if metadata_kwargs["content"]:
-                metadata_kwargs["has_pii"] = self._detect_pii(metadata_kwargs["content"])
+                metadata_kwargs["pii_types"] = self._detect_pii(metadata_kwargs["content"])
             # For plain text files that might be too large, scan them in chunks without storing content.
-            elif self.mime_type and self.mime_type.startswith("text/plain") and metadata_kwargs["size_bytes"] > 1_000_000:
-                metadata_kwargs["has_pii"] = self._process_text_pii_in_chunks(self.file_path)
+            elif (self.mime_type and
+                  self.mime_type.startswith("text/") and
+                  metadata_kwargs["size_bytes"] > 1_000_000
+            ):
+                metadata_kwargs["pii_types"] = self._process_text_pii_in_chunks(self.file_path)
 
-            return FileMetadata(**metadata_kwargs)
+            yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:
             # File was likely deleted between the scan and processing.
             logging.warning(f"File not found during processing (likely deleted): {self.file_path} - {e}")
-            return None
+            return
         except (IOError, PermissionError) as e:
             # Log other I/O related errors, like permission denied.
             logging.warning(f"I/O error processing file: {self.file_path} - {e}")
-            return None
+            return
         except Exception as e:
             # Catch any other unexpected errors during file processing
             logging.error(f"Unexpected error in FileProcessor for {self.file_path}: {e}", exc_info=True)
-            return None
+            return

@@ -161,6 +161,9 @@ class Indexer:
                     try:
                         if future.result():
                             processed_in_chunk += 1
+                    except FileNotFoundError:
+                        # This is common for temp files that are deleted between scan and process.
+                        logging.debug(f"File not found during processing: {future_to_path[future]}")
                     except Exception as exc:
                         path = future_to_path[future]
                         error_message = f"Error processing '{path}': {exc}"

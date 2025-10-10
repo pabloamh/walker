@@ -48,12 +48,13 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
         while True:
             item: Optional[FileMetadata] = db_queue.get()
             if item is sentinel:
+                # Final commit for any remaining items in the batch
                 total_processed += commit_batch(db_session, batch)
                 break
-            if item:
-                batch.append(attrs.asdict(item))
-                if len(batch) >= batch_size:
-                    total_processed += commit_batch(db_session, batch)
+            
+            batch.append(attrs.asdict(item))
+            if len(batch) >= batch_size:
+                total_processed += commit_batch(db_session, batch)
             db_queue.task_done()
     click.echo(f"DB writer finished. A total of {total_processed} records were written.")
 
@@ -68,12 +69,13 @@ def set_memory_limit(limit_gb: Optional[float]):
         logging.warning(f"Could not set memory limit: {e}")
 
 
-def process_file_wrapper(path: Path, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> Optional[FileMetadata]:
+def process_file_wrapper(path: Path, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> bool:
     warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
     set_memory_limit(memory_limit_gb)
     from .file_processor import FileProcessor
     processor = FileProcessor(path)
-    result = processor.process()
-    if result:
-        shared_queue.put(result)
-    return result is not None
+    count = 0
+    for metadata in processor.process():
+        shared_queue.put(metadata)
+        count += 1
+    return count > 0

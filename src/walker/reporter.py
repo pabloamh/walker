@@ -7,6 +7,7 @@ import imagehash
 import numpy as np
 from sqlalchemy import func
 from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
 
 from . import database, models
 from .main import format_bytes
@@ -74,12 +75,33 @@ class Reporter:
                     hash_groups[phash_str].append(path)
                 groups = [sorted(g) for g in hash_groups.values() if len(g) > 1]
             else:
-                hash_array = np.array([h.hash.flatten() for h in hashes.values()], dtype=np.uint8)
-                diff_matrix = np.not_equal(hash_array[np.newaxis, :, :], hash_array[:, np.newaxis, :])
-                distance_matrix = np.sum(diff_matrix, axis=2)
-                similar_indices = np.argwhere((distance_matrix <= threshold) & (np.triu(np.ones_like(distance_matrix), k=1) == 1))
-                path_groups = group_pairs(similar_indices, paths)
-                groups = [sorted(g) for g in path_groups]
+                # The original approach of creating a full N*N distance matrix is not scalable.
+                # It will consume huge amounts of memory (e.g., ~476 GiB for 90k images).
+                # We will switch to a more memory-efficient, chunked approach.
+                hash_array = np.array([h.hash.flatten() for h in hashes.values()], dtype=bool)
+                num_images = len(paths)
+                chunk_size = 1000  # Process 1000 images at a time
+                similar_pairs = []
+
+                with tqdm(total=(num_images // chunk_size)**2 // 2, desc="Comparing chunks") as pbar:
+                    for i in range(0, num_images, chunk_size):
+                        chunk_i = hash_array[i:i + chunk_size]
+                        
+                        # Compare within the chunk
+                        dist_matrix_intra = np.sum(chunk_i[:, np.newaxis, :] != chunk_i[np.newaxis, :, :], axis=2)
+                        indices_i, indices_j = np.where((dist_matrix_intra <= threshold) & (np.triu(np.ones_like(dist_matrix_intra), k=1) == 1))
+                        for i1, j1 in zip(indices_i, indices_j):
+                            similar_pairs.append((i + i1, i + j1))
+
+                        # Compare with subsequent chunks
+                        for j in range(i + chunk_size, num_images, chunk_size):
+                            chunk_j = hash_array[j:j + chunk_size]
+                            dist_matrix_inter = np.sum(chunk_i[:, np.newaxis, :] != chunk_j[np.newaxis, :, :], axis=2)
+                            indices_i, indices_j = np.where(dist_matrix_inter <= threshold)
+                            for i1, j1 in zip(indices_i, indices_j):
+                                similar_pairs.append((i + i1, j + j1))
+                            pbar.update(1)
+                groups = [sorted(g) for g in group_pairs(similar_pairs, paths)]
 
             if not groups:
                 click.echo("No similar images found with the given threshold.")
@@ -188,12 +210,14 @@ class Reporter:
             click.echo("Querying for files flagged with potential PII...")
             files = (
                 db_session.query(models.FileIndex)
-                .filter(models.FileIndex.has_pii == True)
+                .filter(models.FileIndex.pii_types.isnot(None))
                 .order_by(models.FileIndex.path)
                 .all()
             )
             if not files:
                 click.echo("No files containing potential PII were found.")
                 return
+            
             for file in files:
-                click.echo(file.path)
+                pii_types_str = ", ".join(file.pii_types)
+                click.echo(f"{file.path} [{click.style(pii_types_str, fg='yellow')}]")

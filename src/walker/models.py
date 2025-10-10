@@ -20,8 +20,9 @@ class FileMetadata:
     perceptual_hash: Optional[str]
     content: Optional[str]
     exif_data: Optional[str]
-    content_embedding: Optional[bytes]
-    has_pii: Optional[bool]
+    content_embedding: Optional[bytes]    
+    pii_types: Optional[list[str]] = None
+    is_archived_file: bool = False
 
 # Default directories to exclude on Windows when scanning a root drive.
 DEFAULT_WINDOWS_EXCLUDES = [
@@ -68,8 +69,9 @@ class FileIndex(Base):
     perceptual_hash = Column(String, nullable=True, index=True)   # For images
     content = Column(String, nullable=True)                       # Full-text search is complex; not indexing by default
     exif_data = Column(JSON, nullable=True)                       # JSON columns are generally not indexed
-    content_embedding = Column(BLOB, nullable=True)               # Vector indexes are special; not a standard index
-    has_pii = Column(Boolean, nullable=True, index=True)          # For PII detection
+    content_embedding = Column(BLOB, nullable=True)               # Vector indexes are special; not a standard index    
+    pii_types = Column(JSON, nullable=True)                       # For storing a list of detected PII entity types
+    is_archived_file = Column(Boolean, default=False, nullable=False, index=True)
 
     @classmethod
     def from_metadata(cls, metadata: FileMetadata) -> "FileIndex":
