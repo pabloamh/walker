@@ -69,11 +69,11 @@ def set_memory_limit(limit_gb: Optional[float]):
         logging.warning(f"Could not set memory limit: {e}")
 
 
-def process_file_wrapper(path: Path, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> bool:
+def process_file_wrapper(path: Path, app_config: models.Config, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> bool:
     warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
     set_memory_limit(memory_limit_gb)
     from .file_processor import FileProcessor
-    processor = FileProcessor(path)
+    processor = FileProcessor(path, app_config=app_config)
     count = 0
     for metadata in processor.process():
         shared_queue.put(metadata)

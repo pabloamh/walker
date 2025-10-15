@@ -1,4 +1,4 @@
-# walker/models.py
+ # walker/models.py
 from typing import Optional
 
 import attrs
@@ -24,6 +24,10 @@ class FileMetadata:
     pronom_id: Optional[str] = None
     pii_types: Optional[list[str]] = None
     is_archived_file: bool = False
+
+# Forward-declare the Config class to avoid circular imports with worker.py
+class Config:
+    pass
 
 # Default directories to exclude on Windows when scanning a root drive.
 DEFAULT_WINDOWS_EXCLUDES = [

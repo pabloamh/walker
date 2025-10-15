@@ -24,12 +24,18 @@ def scan_directory(root_path: Union[str, Path], exclude: Set[str]) -> Generator[
                 # Use abspath instead of resolve() to avoid resolving symlinks, which could
                 # lead to incorrect path validation against the root scan directories.
                 entry_path_lower = os.path.normcase(os.path.abspath(str(entry)))
-
-                # Check for exclusion
-                if (entry_name_lower in direct_excludes or
+                
+                # --- Exclusion Check ---
+                # 1. Check if the simple name is in the direct exclusion list (e.g., "node_modules").
+                # 2. Check if the full path is in the direct exclusion list (e.g., "/media/alpha/programdata").
+                # 3. Check if the name or full path matches any glob patterns.
+                is_excluded = (
+                    entry_name_lower in direct_excludes or
                     entry_path_lower in direct_excludes or
-                    any(fnmatch.fnmatch(entry_name_lower, pattern) for pattern in glob_patterns) or
-                    any(fnmatch.fnmatch(entry_path_lower, pattern) for pattern in glob_patterns)):
+                    any(fnmatch.fnmatch(entry_name_lower, p) for p in glob_patterns) or
+                    any(fnmatch.fnmatch(entry_path_lower, p) for p in glob_patterns)
+                )
+                if is_excluded:
                     continue
 
                 if entry.is_dir(follow_symlinks=False):

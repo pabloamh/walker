@@ -68,13 +68,24 @@ def get_pii_analyzer() -> AnalyzerEngine:
     """Loads the Presidio AnalyzerEngine with languages from config."""
     app_config = config.load_config()
     # To prevent noisy warnings about unsupported languages, we will explicitly
-    # create a provider configuration that only loads the models and recognizers we need.
+    # create a provider configuration that only loads the models we need.
+    # We also configure the NER model to ignore irrelevant entity types.
     from presidio_analyzer.nlp_engine import NlpEngineProvider
     from presidio_analyzer.recognizer_registry import RecognizerRegistry
 
+    # These are common spaCy entities that are not PII. Ignoring them reduces noise.
+    labels_to_ignore = [
+        "CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW",
+        "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PRODUCT",
+        "QUANTITY", "TIME", "WORK_OF_ART"
+    ]
+
     provider_config = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": lang, "model_name": get_spacy_model_name(lang)} for lang in app_config.pii_languages]
+        "models": [
+            {"lang_code": lang, "model_name": get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
+            for lang in app_config.pii_languages
+        ]
     }
 
     provider = NlpEngineProvider(nlp_configuration=provider_config)
@@ -109,13 +120,14 @@ class FileProcessor:
     """
     Encapsulates the logic for processing a single file to extract metadata.
     """
-    def __init__(self, file_path: Path, virtual_path: Optional[str] = None, is_archived: bool = False):
+    def __init__(self, file_path: Path, app_config: config.Config, virtual_path: Optional[str] = None, is_archived: bool = False):
         self.file_path = file_path
         self.mime_type: Optional[str] = None
         # The virtual_path is used for files extracted from archives.
         self.virtual_path = virtual_path or str(self.file_path)
-        self.app_config = config.load_config()
+        self.app_config = app_config
         self.is_archived = is_archived
+        self.pii_languages = self.app_config.pii_languages
 
     def _get_crypto_hash(self) -> str:
         """Calculates the SHA-256 hash of the file."""
@@ -223,7 +235,7 @@ class FileProcessor:
                 for extracted_file in extracted_files:
                     # Construct the virtual path as requested.
                     virtual_path = f"{self.virtual_path}/{extracted_file.relative_to(temp_path)}"
-                    processor = FileProcessor(extracted_file, virtual_path=virtual_path, is_archived=True)
+                    processor = FileProcessor(extracted_file, self.app_config, virtual_path=virtual_path, is_archived=True)
                     yield from processor.process()
 
         except (zipfile.BadZipFile, tarfile.TarError, Exception) as e:
@@ -242,8 +254,7 @@ class FileProcessor:
         try:
             pii_analyzer = get_pii_analyzer()
             found_pii_types: set[str] = set()
-            app_config = config.load_config()
-            primary_language = app_config.pii_languages[0]
+
             # Presidio's default character limit is 1,000,000. We'll use a smaller chunk size.
             chunk_size = 500_000 
 
@@ -253,9 +264,10 @@ class FileProcessor:
                     if not chunk:
                         break
                     
-                    pii_results = pii_analyzer.analyze(text=chunk, language=primary_language)
-                    if pii_results:
-                        found_pii_types.update(p.entity_type for p in pii_results)
+                    for lang in self.pii_languages:
+                        pii_results = pii_analyzer.analyze(text=chunk, language=lang)
+                        if pii_results:
+                            found_pii_types.update(p.entity_type for p in pii_results)
             return sorted(list(found_pii_types)) if found_pii_types else None
         except Exception as e:
             logging.warning(f"Error during chunked PII scan for {file_path}: {e}")
@@ -267,11 +279,13 @@ class FileProcessor:
             return None
         try:
             pii_analyzer = get_pii_analyzer()
-            app_config = config.load_config()
+            found_pii_types: set[str] = set()
             # Truncate content to avoid errors with very large files in presidio
             truncated_content = content[:1_000_000]
-            pii_results = pii_analyzer.analyze(text=truncated_content, language=app_config.pii_languages[0])
-            return sorted(list({pii.entity_type for pii in pii_results})) if pii_results else None
+            for lang in self.pii_languages:
+                pii_results = pii_analyzer.analyze(text=truncated_content, language=lang)
+                found_pii_types.update(p.entity_type for p in pii_results)
+            return sorted(list(found_pii_types)) if found_pii_types else None
         except Exception:
             return None
 

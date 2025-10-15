@@ -146,8 +146,8 @@ exclude_dirs = [
 ]
 
 # pii_languages: A list of language codes (e.g., "en", "es", "fr") to use for
-# PII (Personally Identifiable Information) detection. The default is English.
-# The first language in the list is the primary one.
+# PII (Personally Identifiable Information) detection. All specified languages
+# will be used to scan each file.
 pii_languages = ["en", "es"]
 
 # memory_limit_gb: A soft memory limit (in Gigabytes) for each worker process.
@@ -158,7 +158,7 @@ pii_languages = ["en", "es"]
 
 # embedding_model_path: Path to a locally saved sentence-transformer model.
 # If set, the application will not need internet access to download it.
-# The path is relative to the `src/walker/` directory.
+# The path is resolved relative to the location of this `walker.toml` file.
 # embedding_model_path = "models/all-MiniLM-L6-v2"
 
 # use_fido: Enable Fido for more accurate file type identification.
@@ -193,7 +193,7 @@ Update your `walker.toml` to point to the downloaded assets.
 # ... other settings ...
 
 # Path to the locally saved sentence-transformer model.
-embedding_model_path = "models"
+embedding_model_path = "models/all-MiniLM-L6-v2"
 
 # Enable Fido if you downloaded its assets.
 use_fido = true

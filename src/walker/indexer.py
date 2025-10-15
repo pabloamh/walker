@@ -156,7 +156,7 @@ class Indexer:
 
         with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
             future_to_path = {
-                executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
+                executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
                 for path in paths_to_process
             }
 

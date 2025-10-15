@@ -41,17 +41,19 @@ class Config:
     scan_dirs: List[str] = attrs.field(factory=list)
     pii_languages: List[str] = attrs.field(factory=lambda: ["en"])
     memory_limit_gb: Optional[float] = None
-    embedding_model_path: Optional[str] = None
+    embedding_model_path: Optional[str] = "models/all-MiniLM-L6-v2"
     use_fido: bool = False
 
 
 @functools.lru_cache(maxsize=1)
-def load_config() -> Config:
+def load_config_with_path() -> tuple[Config, Optional[Path]]:
     """
     Loads configuration from 'walker.toml'.
-    If not found, it returns a default configuration.
+    If not found, it returns a default configuration and None for the path.
+    Returns a tuple of (Config, Optional[Path]).
     """
-    # Look for walker.toml in the current directory first, then in the script's directory.
+    # Look for walker.toml in the current directory first. This is the most
+    # intuitive location for a user-facing configuration file.
     search_paths = [Path.cwd(), Path(__file__).parent]
     config_path = None
     for p in search_paths:
@@ -67,14 +69,22 @@ def load_config() -> Config:
 
     # Get the [tool.walker] table from the TOML file
     walker_config = config_data.get("tool", {}).get("walker", {})
-
-    return Config(
+    
+    loaded_config = Config(
         workers=walker_config.get("workers", 3),
         db_batch_size=walker_config.get("db_batch_size", 500),
         exclude_dirs=list(set(DEFAULT_EXCLUDE_DIRS + walker_config.get("exclude_dirs", []))),
         scan_dirs=walker_config.get("scan_dirs", []),
         pii_languages=walker_config.get("pii_languages", ["en"]),
         memory_limit_gb=walker_config.get("memory_limit_gb"),
-        embedding_model_path=walker_config.get("embedding_model_path"),
+        embedding_model_path=walker_config.get("embedding_model_path", "models/all-MiniLM-L6-v2"),
         use_fido=walker_config.get("use_fido", False),
     )
+    return loaded_config, config_path
+
+def load_config() -> Config:
+    """
+    Loads configuration from 'walker.toml'.
+    This is a convenience wrapper around load_config_with_path.
+    """
+    return load_config_with_path()[0]
