@@ -1,32 +1,20 @@
-Walker File Indexer
-===================
+Welcome to Walker's documentation!
+==================================
 
-.. include:: ../../../../README.md
-   :parser: myst_parser.sphinx_
+.. image:: /_static/logo.png
+
+`Walker` is a powerful and efficient file indexer that recursively scans directories, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-Command-Line Interface
-----------------------
+   cli
+   api
 
-The following documents all the available commands and their options.
+Indices and tables
+==================
 
-.. click:: walker.main:cli
-   :prog: poetry run python -m walker.main
-   :nested: full
-
-API Reference
--------------
-
-This section provides detailed documentation for the core modules of the application, generated directly from the source code docstrings.
-
-.. automodule:: walker.file_processor
-   :members:
-
-.. automodule:: walker.reporter
-   :members:
-
-.. automodule:: walker.indexer
-   :members:
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

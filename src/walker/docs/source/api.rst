@@ -1,7 +1,7 @@
 API Reference
 =============
 
-This section provides detailed documentation on the internal API of the Walker application.
+This section provides an auto-generated API reference for the core modules of the `walker` application.
 
 Indexer
 -------
@@ -21,7 +21,8 @@ Reporter
 .. automodule:: walker.reporter
    :members:
 
-Configuration
--------------
-.. automodule:: walker.config
+Models
+------
+
+.. automodule:: walker.models
    :members:

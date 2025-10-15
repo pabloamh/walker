@@ -1,8 +1,8 @@
 Command-Line Interface
 ========================
 
-This page details all the available commands for the ``walker`` application.
+This page details all the commands available through the `walker` CLI.
 
 .. click:: walker.main:cli
    :prog: walker
-   :nested: full
+   :show-nested:
