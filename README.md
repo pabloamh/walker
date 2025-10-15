@@ -1,12 +1,11 @@
 # Walker File Indexer
 
-A powerful and efficient file indexer that recursively scans a directory, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis.
-The application is built with a multiprocessing architecture to process files concurrently, making it fast and suitable for large collections of files.
+A powerful and efficient file indexer that recursively scans directories, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis. Built with a multiprocessing architecture, `walker` is fast and suitable for large file collections.
 
 ## Features
 
 - **Recursive Scanning**: Traverses entire directory trees to find all files.
-- **Concurrent Processing**: Utilizes multiple worker threads to process files in parallel, significantly speeding up the indexing of large directories.
+- **Concurrent Processing**: Utilizes multiple worker processes to process files in parallel, significantly speeding up the indexing of large directories.
 - **Rich Metadata Extraction**:
     - **Basic Info**: Path, filename, and size.
     - **Cryptographic Hash**: SHA-256 hash for file integrity and deduplication.
@@ -16,22 +15,39 @@ The application is built with a multiprocessing architecture to process files co
     - **Documents**: Extracts text content from PDF (`.pdf`), Microsoft Word (`.docx`), and ODF (`.odt`) files.
     - **Videos**: Extracts media metadata like resolution, duration, and codecs.
     - **Audio**: Extracts metadata tags like artist, album, and title.
-- **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Deep Archive Scanning**: Extracts and individually processes files within archives (`.zip`, `.tar`, etc.), treating them as virtual folders.
-- **Persistent Storage**: Saves all extracted metadata into a SQLite database (`file_indexer.db`).
-- **Powerful Command-Line Interface**: Easy-to-use CLI built with Click for indexing and reporting.
-- **Configurable Exclusions**: Smartly ignores system folders on Windows and allows users to specify custom directories to exclude.
-- **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
-- **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
+- **Advanced File Identification**: Optionally uses **Fido** with **PRONOM** signatures for highly accurate file format identification, especially for files with generic MIME types.
+- **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Categorized PII Detection**: Scans for Personally Identifiable Information (PII) and reports the specific types found (e.g., `CREDIT_CARD_NUMBER`, `PHONE_NUMBER`).
 - **Semantic Search**: Performs powerful, meaning-based searches on file content using AI embeddings.
+- **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
 - **Scalable & Memory-Efficient**: Optimized to handle hundreds of thousands of files without running out of memory during reporting.
-- **Configuration File**: Uses a `walker.toml` file for persistent settings.
+- **Powerful CLI**: Easy-to-use command-line interface built with Click for indexing and reporting.
+- **Flexible Configuration**: Uses a `walker.toml` file for persistent settings and supports command-line overrides.
+- **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
+
+## Quick Start
+
+1.  **Install prerequisites** (Python 3.11+, Poetry, `libmagic`, `mediainfo`).
+2.  **Clone and install**:
+    ```sh
+    git clone <your-repo-url>
+    cd walker
+    poetry install
+    ```
+3.  **Download offline assets** (AI models, etc.):
+    ```sh
+    poetry run python -m walker.main download-assets
+    ```
+4.  **Configure `src/walker/walker.toml`** to set your scan directories.
+5.  **Run the indexer**:
+    ```sh
+    poetry run python -m walker.main index
+    ```
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed on your system:
-
+Before you begin, ensure you have the following installed:
 -   **Python 3.11+**
 -   **Poetry** for managing Python dependencies.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
@@ -54,14 +70,14 @@ brew install libmagic mediainfo
 This project uses Poetry for dependency management.
 
 1.  **Clone the Repository**:
-    ```bash
+    ```sh
     git clone <your-repo-url>
     cd walker
     ```
 
 2.  **Install Python Dependencies**:
     From the root of the project, run the following command to create a virtual environment and install the required packages:
-    ```bash
+    ```sh
     poetry install
     ```
 
@@ -144,10 +160,10 @@ pii_languages = ["en", "es"]
 # If set, the application will not need internet access to download it.
 # The path is relative to the `src/walker/` directory.
 # embedding_model_path = "models/all-MiniLM-L6-v2"
+
+# use_fido: Enable Fido for more accurate file type identification.
+# use_fido = true
 ```
-
-**Note**: Any options you provide on the command line will always take precedence over the settings in the `walker.toml` file.
-
 ## Offline Setup and Usage
 
 The application uses several components that may require online access to download models or data on their first run. To use the application in a fully offline environment, you must pre-download these assets.
@@ -156,7 +172,7 @@ The application uses several components that may require online access to downlo
 
 On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
 
-From your project's root directory, run:
+From the project's root directory, run:
 ```sh
 poetry run python -m walker.main download-assets
 ```
@@ -267,7 +283,7 @@ poetry run python -m walker.main find-similar-text --threshold 0.95
 
 Performs a powerful semantic search across the content of all indexed text files. This finds files based on meaning, not just keywords.
 
-```bash
+```sh
 # Search for a concept and get the top 5 results
 poetry run python -m walker.main search "financial results for the last quarter" --limit 5
 ```
