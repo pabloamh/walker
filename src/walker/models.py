@@ -19,9 +19,9 @@ class FileMetadata:
     mime_type: Optional[str]
     perceptual_hash: Optional[str]
     content: Optional[str]
+    content_embedding: Optional[bytes]
     exif_data: Optional[str]
     pronom_id: Optional[str] = None
-    content_embedding: Optional[bytes]    
     pii_types: Optional[list[str]] = None
     is_archived_file: bool = False
 
