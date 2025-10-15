@@ -2,6 +2,7 @@
 import os
 import spacy
 import subprocess
+import urllib.request
 from pathlib import Path
 
 from . import config, file_processor
@@ -42,12 +43,24 @@ def cache_fido_signatures(cache_dir: Path):
     """Downloads the latest PRONOM signature file for Fido."""
     print(f"Caching Fido signature file to '{cache_dir}'...")
     cache_dir.mkdir(parents=True, exist_ok=True)
+
+    signature_file_url = "https://www.nationalarchives.gov.uk/pronom/latest/DROID_SignatureFile.xml"
+    destination_path = cache_dir / "DROID_SignatureFile.xml"
+
+    if destination_path.exists():
+        print("...signature file already exists. Skipping.")
+        return
+
     try:
-        # Fido has a command to update its signature file to a specific directory.
-        subprocess.run(["fido", "-update-signatures", str(cache_dir)], check=True)
+        # Fido doesn't have a built-in update command. We must download it manually.
+        print(f"Downloading from {signature_file_url}...")
+        with urllib.request.urlopen(signature_file_url) as response, open(destination_path, 'wb') as out_file:
+            out_file.write(response.read())
         print("...caching complete!")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("...error: 'fido' command not found. Please install 'opf-fido' first (`poetry add opf-fido`).")
+    except Exception as e:
+        print(f"...error: Failed to download Fido signature file: {e}")
+        if destination_path.exists():
+            destination_path.unlink() # Clean up partial download
 
 
 def run_download():
