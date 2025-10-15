@@ -38,6 +38,18 @@ def cache_tldextract_list(cache_dir: Path):
     subprocess.run(["python", "-c", "import tldextract; tldextract.TLDExtract()"], env=env, check=True)
     print("...caching complete!")
 
+def cache_fido_signatures(cache_dir: Path):
+    """Downloads the latest PRONOM signature file for Fido."""
+    print(f"Caching Fido signature file to '{cache_dir}'...")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Fido has a command to update its signature file to a specific directory.
+        subprocess.run(["fido", "-update-signatures", str(cache_dir)], check=True)
+        print("...caching complete!")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("...error: 'fido' command not found. Please install 'opf-fido' first (`poetry add opf-fido`).")
+
+
 def run_download():
     """Main function to download all required offline assets."""
 
@@ -60,6 +72,10 @@ def run_download():
         download_spacy_model(model_name, lang)
 
     cache_tldextract_list(models_dir / 'tldextract_cache')
+
+    # Download Fido signatures if fido is configured to be used
+    if app_config.use_fido:
+        cache_fido_signatures(models_dir / 'fido_cache')
 
     print("\nAll offline assets are ready.")
     print("\n--- IMPORTANT ---")

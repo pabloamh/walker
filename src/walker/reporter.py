@@ -200,6 +200,32 @@ class Reporter:
             for score, path in all_results[:limit]:
                 click.echo(f"Score: {score:.4f} | {path}")
 
+    def find_lonely_files(self, limit: int):
+        """Finds unique files that have no duplicates."""
+        with database.get_session() as db_session:
+            click.echo("Querying for unique files (no content duplicates)...")
+
+            # Subquery to find all hashes that appear more than once
+            dupe_hashes_subq = (
+                db_session.query(models.FileIndex.crypto_hash)
+                .group_by(models.FileIndex.crypto_hash)
+                .having(func.count(models.FileIndex.id) > 1)
+                .subquery()
+            )
+
+            # Query for files whose hash is NOT in the list of duplicate hashes
+            lonely_files_query = (
+                db_session.query(models.FileIndex)
+                .filter(models.FileIndex.crypto_hash.notin_(dupe_hashes_subq))
+                .order_by(models.FileIndex.size_bytes.desc())
+            )
+
+            total_lonely = lonely_files_query.count()
+            click.echo(f"Found {total_lonely} unique files. Showing the largest {limit}:")
+
+            for file in lonely_files_query.limit(limit).all():
+                click.echo(f"{format_bytes(file.size_bytes):>10} | {file.path}")
+
     def largest_files(self, limit: int):
         """Lists the largest files in the index by size."""
         with database.get_session() as db_session:
@@ -215,6 +241,29 @@ class Reporter:
                 return
             for file in files:
                 click.echo(f"{format_bytes(file.size_bytes):>10} | {file.path}")
+
+    def pronom_summary(self):
+        """Shows a summary of file counts grouped by their PRONOM ID."""
+        with database.get_session() as db_session:
+            click.echo("Generating file type summary by PRONOM ID...")
+            summary = (
+                db_session.query(
+                    models.FileIndex.pronom_id,
+                    func.count(models.FileIndex.id).label("count"),
+                    func.sum(models.FileIndex.size_bytes).label("total_size")
+                )
+                .filter(models.FileIndex.pronom_id.isnot(None))
+                .group_by(models.FileIndex.pronom_id)
+                .order_by(func.count(models.FileIndex.id).desc())
+                .all()
+            )
+            if not summary:
+                click.echo("No files with PRONOM IDs found in the index. (Run with 'use_fido = true')")
+                return
+            click.echo(f"{'PRONOM ID':<15} | {'Count':>10} | {'Total Size':>12}")
+            click.echo("-" * 43)
+            for pronom_id, count, total_size in summary:
+                click.echo(f"{str(pronom_id):<15} | {count:>10} | {format_bytes(total_size or 0):>12}")
 
     def type_summary(self):
         """Shows a summary of file counts and sizes grouped by MIME type."""

@@ -90,6 +90,20 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
     )
     indexer.run()
 
+@cli.command(name="refine-unknowns")
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_unknowns(workers: int):
+    """
+    Post-processes files with generic MIME types using Fido.
+
+    This command finds files indexed as 'application/octet-stream' or
+    'inode/x-empty' and re-processes them with Fido to get a more
+    accurate PRONOM ID and MIME type. Requires 'use_fido = true' in config.
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_unknown_files()
+
 @cli.command(name="download-assets")
 def download_assets():
     """
@@ -153,6 +167,24 @@ def type_summary():
     from .reporter import Reporter
     reporter = Reporter()
     reporter.type_summary()
+
+@cli.command(name="pronom-summary")
+def pronom_summary():
+    """Shows a summary of file counts grouped by PRONOM ID."""
+    from .reporter import Reporter
+    reporter = Reporter()
+    reporter.pronom_summary()
+
+@cli.command(name="lonely-files")
+@click.option('--limit', default=20, type=int, help='Number of files to list.')
+def lonely_files(limit: int):
+    """
+    Lists unique files that have no content duplicates.
+    This is useful for finding unique assets in your collection.
+    """
+    from .reporter import Reporter
+    reporter = Reporter()
+    reporter.find_lonely_files(limit)
 
 @cli.command(name="list-pii-files")
 def list_pii_files():

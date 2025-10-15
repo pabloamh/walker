@@ -166,28 +166,36 @@ This script will perform the following actions:
 2.  **Download the `spaCy` language model** (`en_core_web_lg`) required for PII detection.
 3.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `walker.toml`.
 4.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/walker/models/tldextract_cache`.
+5.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your config.
 
 ### Step 2: Update Configuration for Offline Use
 
-Uncomment and set the `embedding_model_path` in your `src/walker/walker.toml` file to point to the downloaded model directory.
+Update your `walker.toml` to point to the downloaded assets.
 
 ```toml
 [tool.walker]
 # ... other settings ...
 
 # Path to the locally saved sentence-transformer model.
-embedding_model_path = "models/all-MiniLM-L6-v2"
+embedding_model_path = "models"
+
+# Enable Fido if you downloaded its assets.
+use_fido = true
 ```
 
 ### Step 3: Running Offline
 
 When you deploy your application, ensure the `src/walker/models` directory (containing the downloaded assets) is included.
 
-To ensure `tldextract` uses its local cache, you must **set an environment variable** before running the application.
+To ensure `tldextract` and `fido` use their local caches, you must **set environment variables** before running the application.
 
 ```bash
-# Set the cache directory path relative to where you run the command
-export TLDEXTRACT_CACHE_DIR=./src/walker/models/tldextract_cache
+# Set environment variables to point to the cached assets.
+# These paths should be absolute or relative to where you run the command.
+export TLDEXTRACT_CACHE_DIR="$(pwd)/src/walker/models/tldextract_cache"
+
+# The FIDO_SIG_FILE variable tells fido where to find its signature file.
+export FIDO_SIG_FILE="$(pwd)/src/walker/models/fido_cache/DROID_SignatureFile.xml"
 
 # Now run the indexer
 poetry run python -m walker.main index
@@ -211,8 +219,16 @@ poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
 -   `ROOT_PATH`: One or more directories to start scanning from.
 
 **Options:**
--   `--workers INTEGER`: The number of worker threads to use for processing files.
--   `--exclude TEXT`: Directory name to exclude. Can be used multiple times.
+
+### Refining Unknown Files
+
+After an initial scan, you can run this command to re-process any files that were identified with a generic MIME type (like `application/octet-stream`). It uses `fido` to attempt a more accurate identification. This requires `use_fido = true` in your `walker.toml`.
+
+```bash
+poetry run python -m walker.main refine-unknowns
+```
+
+This is useful for improving your data quality without slowing down the initial indexing process.
 
 ### Reporting and Analysis
 

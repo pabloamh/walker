@@ -6,6 +6,7 @@ import warnings
 import hashlib
 import json
 import os
+import subprocess
 import tarfile
 import zipfile
 import tempfile
@@ -100,6 +101,10 @@ DEFAULT_EXCLUDED_EXTENSIONS = {
     ".log", # Log files
 }
 
+# Maximum file size for full text extraction to prevent memory issues.
+# Files larger than this will not have their content stored in the database.
+MAX_CONTENT_EXTRACTION_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
+
 class FileProcessor:
     """
     Encapsulates the logic for processing a single file to extract metadata.
@@ -109,6 +114,7 @@ class FileProcessor:
         self.mime_type: Optional[str] = None
         # The virtual_path is used for files extracted from archives.
         self.virtual_path = virtual_path or str(self.file_path)
+        self.app_config = config.load_config()
         self.is_archived = is_archived
 
     def _get_crypto_hash(self) -> str:
@@ -275,6 +281,10 @@ class FileProcessor:
             if not self.mime_type:
                 return None
 
+            # Avoid reading extremely large files into memory.
+            if self.file_path.stat().st_size > MAX_CONTENT_EXTRACTION_SIZE_BYTES:
+                return None
+
             # Do not attempt to extract text from binary formats like images/video/audio
             # as it will likely be meaningless and is computationally expensive.
             if self.mime_type.startswith(("image", "video", "audio")):
@@ -335,6 +345,32 @@ class FileProcessor:
         except Exception:
             return None
 
+    def _get_pronom_id_with_fido(self) -> Optional[Tuple[str, str]]:
+        """
+        Uses Fido to get a more accurate file format identification (PRONOM ID).
+        This is slower as it involves a subprocess call, so it's used as a fallback.
+        Returns a tuple of (puid, mimetype) or None.
+        """
+        if not self.app_config.use_fido:
+            return None
+        try:
+            # Fido writes its output to stdout. We capture it.
+            # The '-q' flag makes the output cleaner (just the CSV).
+            # The '-input' flag is more explicit for specifying the file path.
+            result = subprocess.run(
+                ["fido", "-q", "-input", str(self.file_path)],
+                capture_output=True, text=True, check=True
+            )
+            # Fido output is a CSV: status,time,puid,formatname,signaturename,mimetype,basis,warning
+            # We take the first line of output, as a file can have multiple matches.
+            first_line = result.stdout.strip().splitlines()[0]
+            parts = first_line.split(',')
+            puid = parts[2].strip('"')
+            mimetype = parts[5].strip('"')
+            return puid, mimetype
+        except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+            return None
+
     def process(self) -> Generator[FileMetadata, None, None]:
         """
         Processes the file and returns a FileMetadata object.
@@ -355,6 +391,15 @@ class FileProcessor:
                 return
 
             self.mime_type = magic.from_file(str(self.file_path), mime=True)
+            pronom_id = None
+
+            # If magic gives a generic result, try Fido for a more specific ID.
+            if self.app_config.use_fido and self.mime_type in ("application/octet-stream", "inode/x-empty"):
+                fido_result = self._get_pronom_id_with_fido()
+                if fido_result:
+                    pronom_id, fido_mimetype = fido_result
+                    if fido_mimetype:
+                        self.mime_type = fido_mimetype
             
             metadata_kwargs = {
                 "path": self.virtual_path,
@@ -366,18 +411,20 @@ class FileProcessor:
                 "perceptual_hash": None,
                 "content": None,
                 "exif_data": None,
+                "pronom_id": pronom_id,
                 "content_embedding": None,
                 "pii_types": None,
                 "is_archived_file": self.is_archived,
             }
 
-            # --- Handle Archives Separately ---
+            # --- Handle Archives ---
+            # For archives, we process the container file first, then its contents.
             if self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz"):
                 # First, yield the metadata for the archive file itself.
                 yield FileMetadata(**metadata_kwargs)
                 # Then, yield metadata for all files inside the archive.
                 yield from self._process_archive()
-                return # Stop processing for the archive file itself.
+                return # Stop here, as the archive's content has been handled.
 
             if self.mime_type:
                 if self.mime_type.startswith("image"):
@@ -400,16 +447,14 @@ class FileProcessor:
                 embedding = embedding_model.encode(metadata_kwargs["content"])
                 metadata_kwargs["content_embedding"] = embedding.tobytes()
             
-            # --- PII Detection ---
-            # If content was fully extracted, analyze it.
-            if metadata_kwargs["content"]:
-                metadata_kwargs["pii_types"] = self._detect_pii(metadata_kwargs["content"])
-            # For plain text files that might be too large, scan them in chunks without storing content.
-            elif (self.mime_type and
-                  self.mime_type.startswith("text/") and
-                  metadata_kwargs["size_bytes"] > 1_000_000
-            ):
+            # --- PII Detection (Optimized) ---
+            # For large text files, use the memory-efficient chunked scanner.
+            # This avoids loading large content into memory just for PII analysis.
+            if self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 1_000_000:
                 metadata_kwargs["pii_types"] = self._process_text_pii_in_chunks(self.file_path)
+            # For smaller files where content was already extracted, analyze the content directly.
+            elif metadata_kwargs["content"]:
+                metadata_kwargs["pii_types"] = self._detect_pii(metadata_kwargs["content"])
 
             yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:

@@ -18,7 +18,7 @@ author = 'Pablo'
 
 # Add the project's source directory to the path
 # This is necessary for Sphinx to find and import your modules for autodoc
-src_path = Path(__file__).parent.parent.parent / 'src'
+src_path = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(src_path))
 
 
@@ -57,3 +57,9 @@ autodoc_member_order = 'bysource'
 myst_enable_extensions = [
     "colon_fence",
 ]
+
+# -- Sphinx-Click settings ---------------------------------------------------
+# This tells sphinx-click where to find your Click application object.
+sphinx_click_mod_path = 'walker.main'
+sphinx_click_obj = 'cli'
+sphinx_click_show_hidden = False

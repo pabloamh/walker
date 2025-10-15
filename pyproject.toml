@@ -31,8 +31,17 @@ furo = "^2025.9.25"
 myst-parser = "^4.0.1"
 sphinx-click = "^6.1.0"
 sphinx-autobuild = "^2025.8.25"
+opf-fido = "^1.6.1"
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "sphinx (>=8.2.3,<9.0.0)",
+    "furo (>=2025.9.25,<2026.0.0)",
+    "sphinx-click (>=6.1.0,<7.0.0)",
+    "myst-parser (>=4.0.1,<5.0.0)"
+]

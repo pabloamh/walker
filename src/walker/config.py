@@ -42,6 +42,7 @@ class Config:
     pii_languages: List[str] = attrs.field(factory=lambda: ["en"])
     memory_limit_gb: Optional[float] = None
     embedding_model_path: Optional[str] = None
+    use_fido: bool = False
 
 
 @functools.lru_cache(maxsize=1)
@@ -75,4 +76,5 @@ def load_config() -> Config:
         pii_languages=walker_config.get("pii_languages", ["en"]),
         memory_limit_gb=walker_config.get("memory_limit_gb"),
         embedding_model_path=walker_config.get("embedding_model_path"),
+        use_fido=walker_config.get("use_fido", False),
     )

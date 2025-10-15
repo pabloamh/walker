@@ -20,6 +20,7 @@ class FileMetadata:
     perceptual_hash: Optional[str]
     content: Optional[str]
     exif_data: Optional[str]
+    pronom_id: Optional[str] = None
     content_embedding: Optional[bytes]    
     pii_types: Optional[list[str]] = None
     is_archived_file: bool = False
@@ -68,6 +69,7 @@ class FileIndex(Base):
     mime_type = Column(String, nullable=True, index=True)
     perceptual_hash = Column(String, nullable=True, index=True)   # For images
     content = Column(String, nullable=True)                       # Full-text search is complex; not indexing by default
+    pronom_id = Column(String, nullable=True, index=True)         # PRONOM ID from Fido
     exif_data = Column(JSON, nullable=True)                       # JSON columns are generally not indexed
     content_embedding = Column(BLOB, nullable=True)               # Vector indexes are special; not a standard index    
     pii_types = Column(JSON, nullable=True)                       # For storing a list of detected PII entity types
