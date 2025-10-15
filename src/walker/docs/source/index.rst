@@ -27,3 +27,6 @@ This section provides detailed documentation for the core modules of the applica
 
 .. automodule:: walker.reporter
    :members:
+
+.. automodule:: walker.indexer
+   :members:

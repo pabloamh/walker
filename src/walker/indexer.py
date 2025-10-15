@@ -16,7 +16,7 @@ from . import worker
 
 
 class Indexer:
-    """Orchestrates the file indexing process."""
+    """Orchestrates the file scanning, processing, and indexing workflow."""
 
     def __init__(
         self,
@@ -25,6 +25,15 @@ class Indexer:
         memory_limit_gb: Optional[float],
         exclude_paths: Tuple[str, ...],
     ):
+        """
+        Initializes the Indexer with CLI arguments and application configuration.
+
+        Args:
+            root_paths: A tuple of root directories to start scanning from.
+            workers: The number of worker processes to use.
+            memory_limit_gb: An optional soft memory limit for each worker in GB.
+            exclude_paths: A tuple of paths or patterns to exclude from the scan.
+        """
         self.app_config = config.load_config()
         self.cli_root_paths = root_paths
         self.cli_workers = workers
@@ -37,7 +46,10 @@ class Indexer:
         self.final_exclude_list: set[str] = set()
 
     def _prepare_paths_and_exclusions(self):
-        """Validates paths and merges exclusions from CLI and config."""
+        """
+        Validates root paths and merges exclusion lists from the CLI and config file.
+        Also applies platform-specific default exclusions for root-level scans.
+        """
         # --- Determine which paths to scan ---
         combined_paths = list(self.cli_root_paths)
         if self.app_config.scan_dirs:
@@ -73,12 +85,23 @@ class Indexer:
                 click.echo("Linux root drive scan detected. Consider excluding /proc, /sys, /dev, /run.")
 
     def _prepare_settings(self):
-        """Merges CLI arguments and config file settings."""
+        """
+        Merges settings from CLI arguments and the configuration file.
+        CLI arguments take precedence over config file settings.
+        """
         self.final_workers = self.cli_workers if self.cli_workers != 3 else self.app_config.workers
         self.final_memory_limit = self.cli_memory_limit_gb if self.cli_memory_limit_gb is not None else self.app_config.memory_limit_gb
 
     def _get_file_chunks(self, chunk_size: int):
-        """Yields chunks of file paths from the scanner."""
+        """
+        Scans the configured root paths and yields chunks of file paths.
+
+        Args:
+            chunk_size: The maximum number of paths to include in each chunk.
+
+        Yields:
+            A list of Path objects.
+        """
         chunk = []
         all_paths_generator = (
             file_path
@@ -94,7 +117,19 @@ class Indexer:
             yield chunk
 
     def _filter_chunk(self, path_chunk: list[Path], existing_files: Dict[str, float]) -> list[Path]:
-        """Filters a chunk of paths against an in-memory dictionary of existing files."""
+        """
+        Filters a chunk of paths to find new or modified files.
+
+        This compares files against an in-memory dictionary of existing file paths
+        and their modification times.
+
+        Args:
+            path_chunk: A list of file paths to filter.
+            existing_files: A dictionary mapping file paths to their mtime.
+
+        Returns:
+            A list of paths for files that need to be processed.
+        """
         files_to_process = []
         for p in path_chunk:
             try:
@@ -106,9 +141,46 @@ class Indexer:
                 continue
         return files_to_process
 
+    def _execute_processing_pool(self, paths_to_process: list[Path], description: str) -> None:
+        """
+        Manages a process pool to process a list of files and write results to the DB.
+
+        Args:
+            paths_to_process: A list of file paths to be processed by the workers.
+            description: A description for the tqdm progress bar.
+        """
+        manager = multiprocessing.Manager()
+        results_queue = manager.Queue()
+        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
+        writer_thread.start()
+
+        with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
+            future_to_path = {
+                executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
+                for path in paths_to_process
+            }
+
+            WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
+            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc=description):
+                try:
+                    future.result(timeout=WORKER_TIMEOUT_SECONDS)
+                except TimeoutError:
+                    path = future_to_path[future]
+                    error_message = f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s processing '{path}'. It may be a very large or corrupt file."
+                    logging.error(error_message)
+                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
+                except Exception as exc:
+                    path = future_to_path[future]
+                    error_message = f"Error processing '{path}': {exc}"
+                    logging.error(error_message)
+                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
+
+        results_queue.put(worker.sentinel)
+        writer_thread.join()
+
     def refine_unknown_files(self):
         """
-        Finds files with generic MIME types in the DB and re-processes them
+        Finds files with generic MIME types in the database and re-processes them
         using Fido for better identification.
         """
         self._prepare_settings()
@@ -135,39 +207,13 @@ class Indexer:
         if not paths_to_process:
             return
 
-        manager = multiprocessing.Manager()
-        results_queue = manager.Queue()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
-        writer_thread.start()
-
-        with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
-            future_to_path = {
-                executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
-                for path in paths_to_process
-            }
-
-            WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
-            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Refining files"):
-                try:
-                    future.result(timeout=WORKER_TIMEOUT_SECONDS)
-                except TimeoutError:
-                    path = future_to_path[future]
-                    error_message = f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s refining '{path}'. It may be a very large or corrupt file."
-                    logging.error(error_message)
-                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-                except Exception as exc:
-                    path = future_to_path[future]
-                    error_message = f"Error refining '{path}': {exc}"
-                    logging.error(error_message)
-                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-
-        results_queue.put(worker.sentinel)
-        writer_thread.join()
+        self._execute_processing_pool(paths_to_process, "Refining files")
         click.echo("File refinement process complete.")
 
-
     def run(self):
-        """Executes the entire indexing process."""
+        """
+        Executes the main file indexing workflow.
+        """
         self._prepare_settings()
         self._prepare_paths_and_exclusions()
 
@@ -185,15 +231,8 @@ class Indexer:
         if self.final_memory_limit and sys.platform != "win32":
             click.echo(click.style(f"Applying a soft memory limit of {self.final_memory_limit:.2f} GB per worker.", fg="blue"))
 
-        manager = multiprocessing.Manager()
-        results_queue = manager.Queue()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
-        writer_thread.start()
-
         postfix_data = {"processed": 0}
-        with ProcessPoolExecutor(max_workers=self.final_workers) as executor, \
-             tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
-
+        with tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
             # --- Pre-load existing file index into memory for fast lookups ---
             click.echo("Loading existing file index into memory...")
             with database.get_session() as db_session:
@@ -207,120 +246,9 @@ class Indexer:
                 files_to_process = self._filter_chunk(path_chunk, existing_files_map)
                 pbar.update(len(path_chunk))
 
-                if not files_to_process:
-                    continue
+                if files_to_process:
+                    self._execute_processing_pool(files_to_process, "Processing chunk")
+                    postfix_data["processed"] += len(files_to_process)
+                    pbar.set_postfix(postfix_data)
 
-                pbar.set_description("Processing files...")
-                future_to_path = {
-                    executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
-                    for path in files_to_process
-                }
-
-                WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
-                processed_in_chunk = 0
-                for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing chunk", leave=False):
-                    try:
-                        # Add a timeout to prevent waiting forever on a stuck worker
-                        if future.result(timeout=WORKER_TIMEOUT_SECONDS):
-                            processed_in_chunk += 1
-                    except FileNotFoundError:
-                        # This is common for temp files that are deleted between scan and process.
-                        logging.debug(f"File not found during processing: {future_to_path[future]}")
-                    except Exception as exc:
-                        path = future_to_path[future]
-                        error_message = f"Error processing '{path}': {exc}"
-                        logging.error(error_message)
-                        tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-                    except TimeoutError:
-                        path = future_to_path[future]
-                        error_message = f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s processing '{path}'. It may be a very large or corrupt file."
-                        logging.error(error_message)
-                        tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-
-                postfix_data["processed"] += processed_in_chunk
-                pbar.set_postfix(postfix_data)
-
-
-        results_queue.put(worker.sentinel)
-        writer_thread.join()
-        click.echo("All files have been processed and indexed.")
-        return files_to_process
-
-    def run(self):
-        """Executes the entire indexing process."""
-        self._prepare_settings()
-        self._prepare_paths_and_exclusions()
-
-        if not self.final_root_paths:
-            config_path = Path("walker.toml")
-            if not config_path.is_file():
-                click.echo(click.style("Warning: No scan paths provided and 'walker.toml' not found.", fg="yellow"))
-                click.echo(f"Please create a '{config_path.resolve()}' file with 'scan_dirs' or specify paths on the command line.")
-            else:
-                click.echo(click.style("Warning: No scan paths provided.", fg="yellow"))
-                click.echo("Please add directories to 'scan_dirs' in your 'walker.toml' or specify paths on the command line.")
-            return
-
-        click.echo(f"Starting scan with {self.final_workers} workers...")
-        if self.final_memory_limit and sys.platform != "win32":
-            click.echo(click.style(f"Applying a soft memory limit of {self.final_memory_limit:.2f} GB per worker.", fg="blue"))
-
-        manager = multiprocessing.Manager()
-        results_queue = manager.Queue()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
-        writer_thread.start()
-
-        postfix_data = {"processed": 0}
-        with ProcessPoolExecutor(max_workers=self.final_workers) as executor, \
-             tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
-
-            # --- Pre-load existing file index into memory for fast lookups ---
-            click.echo("Loading existing file index into memory...")
-            with database.get_session() as db_session:
-                existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).all()
-                existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
-            click.echo(f"Loaded {len(existing_files_map)} records from the index.")
-
-            chunk_iterator = self._get_file_chunks(chunk_size=10000)
-            for path_chunk in chunk_iterator:
-                pbar.set_description("Filtering files...")
-                files_to_process = self._filter_chunk(path_chunk, existing_files_map)
-                pbar.update(len(path_chunk))
-
-                if not files_to_process:
-                    continue
-
-                pbar.set_description("Processing files...")
-                future_to_path = {
-                    executor.submit(worker.process_file_wrapper, path, results_queue, self.final_memory_limit): path
-                    for path in files_to_process
-                }
-
-                WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
-                processed_in_chunk = 0
-                for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc="Processing chunk", leave=False):
-                    try:
-                        # Add a timeout to prevent waiting forever on a stuck worker
-                        if future.result(timeout=WORKER_TIMEOUT_SECONDS):
-                            processed_in_chunk += 1
-                    except FileNotFoundError:
-                        # This is common for temp files that are deleted between scan and process.
-                        logging.debug(f"File not found during processing: {future_to_path[future]}")
-                    except Exception as exc:
-                        path = future_to_path[future]
-                        error_message = f"Error processing '{path}': {exc}"
-                        logging.error(error_message)
-                        tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-                    except TimeoutError:
-                        path = future_to_path[future]
-                        error_message = f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s processing '{path}'. It may be a very large or corrupt file."
-                        logging.error(error_message)
-                        tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-
-                postfix_data["processed"] += processed_in_chunk
-                pbar.set_postfix(postfix_data)
-
-
-        results_queue.put(worker.sentinel)
-        writer_thread.join()
         click.echo("All files have been processed and indexed.")
