@@ -368,7 +368,14 @@ class FileProcessor:
             puid = parts[2].strip('"')
             mimetype = parts[5].strip('"')
             return puid, mimetype
-        except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+        except FileNotFoundError:
+            logging.error("The 'fido' command was not found. Please ensure 'opf-fido' is installed and in your system's PATH.")
+            return None
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {e.stderr.strip()}")
+            return None
+        except IndexError:
+            logging.warning(f"Fido returned unexpected output for {self.file_path}. Could not parse PRONOM ID.")
             return None
 
     def process(self) -> Generator[FileMetadata, None, None]:
