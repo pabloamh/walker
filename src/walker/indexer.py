@@ -6,7 +6,7 @@ import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-
+import os
 import click
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -69,8 +69,10 @@ class Indexer:
         self.final_root_paths = tuple(sorted(list(set(validated_paths))))
 
         # --- Prepare exclusion list ---
-        self.final_exclude_list = {path.lower() for path in self.cli_exclude_paths}
-        self.final_exclude_list.update({d.lower() for d in self.app_config.exclude_dirs})
+        # Normalize all exclusion paths to be case-insensitive and use the OS's path separator.
+        # This ensures consistent matching across platforms.
+        self.final_exclude_list = {os.path.normcase(path) for path in self.cli_exclude_paths}
+        self.final_exclude_list.update({os.path.normcase(d) for d in self.app_config.exclude_dirs})
 
         # --- Apply platform-specific default exclusions for root-level scans ---
         is_root_scan = any(p.parent == p for p in self.final_root_paths)

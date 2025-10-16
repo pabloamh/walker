@@ -106,7 +106,9 @@ scan_dirs = []
 
 # exclude_dirs: A list of directory names to always exclude from scanning.
 # This is useful for ignoring common development, temporary, or cache folders.
-# It supports glob patterns (e.g., "*.egg-info").
+# It supports simple names (e.g., "node_modules"), full paths
+# (e.g., "/media/archive/do_not_scan"), and glob patterns (e.g., "*.egg-info").
+# All checks are case-insensitive.
 exclude_dirs = [
     "node_modules",
     "bower_components", # JS package manager
