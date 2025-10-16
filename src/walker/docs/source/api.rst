@@ -1,28 +1,52 @@
 API Reference
 =============
 
-This section provides an auto-generated API reference for the core modules of the `walker` application.
+This section provides the auto-generated API documentation for the ``walker`` package.
 
-Indexer
--------
+walker.main
+-----------
+
+.. automodule:: walker.main
+   :members:
+
+walker.indexer
+--------------
 
 .. automodule:: walker.indexer
    :members:
 
-File Processor
---------------
+walker.file_processor
+---------------------
 
 .. automodule:: walker.file_processor
    :members:
 
-Reporter
---------
+walker.worker
+-------------
 
-.. automodule:: walker.reporter
+.. automodule:: walker.worker
    :members:
 
-Models
-------
+walker.scanner
+--------------
+
+.. automodule:: walker.scanner
+   :members:
+
+walker.config
+-------------
+
+.. automodule:: walker.config
+   :members:
+
+walker.models
+-------------
 
 .. automodule:: walker.models
+   :members:
+
+walker.log_manager
+------------------
+
+.. automodule:: walker.log_manager
    :members:

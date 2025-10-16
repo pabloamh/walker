@@ -5,12 +5,18 @@ from typing import Optional, Tuple
 
 import click
 
-from . import config, database, models
+from . import config, database, models, log_manager
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
     log_file = Path(__file__).parent / "walker.log"
-    logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', filename=log_file, filemode='a')
+    # Use a custom handler to prevent huge log files from repetitive errors.
+    handler = log_manager.DeduplicatingLogHandler(log_file, mode='a')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    
+    # Configure the root logger
+    logging.basicConfig(level=logging.WARNING, handlers=[handler])
 
 # Default directories to exclude on Windows when scanning a root drive.
 # These are case-insensitive.

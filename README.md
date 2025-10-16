@@ -294,7 +294,7 @@ poetry run python -m walker.main search "financial results for the last quarter"
 
 This command lists the largest files in your index, helping you identify what is consuming the most disk space.
 
-```bash
+```sh
 poetry run python -m walker.main largest-files --limit 25
 ```
 

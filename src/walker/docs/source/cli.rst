@@ -1,8 +1,8 @@
 Command-Line Interface
 ========================
 
-This page details all the commands available through the `walker` CLI.
+This page details the command-line interface for the Walker application, powered by Click.
 
 .. click:: walker.main:cli
-   :prog: walker
-   :show-nested:
+   :prog: poetry run python -m walker.main
+   :nested: full

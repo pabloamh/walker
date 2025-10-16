@@ -241,52 +241,41 @@ class FileProcessor:
         except (zipfile.BadZipFile, tarfile.TarError, Exception) as e:
             logging.warning(f"Could not process archive {self.file_path}: {e}")
             return # Stop processing this archive if an error occurs
-
-    def _process_text_pii_in_chunks(self, file_path: Path, encoding: str = "utf-8") -> Optional[list[str]]:
-        # For very large files, first check if it's likely to be text.
-        if "text" not in self.mime_type:
-            return None
-
+    
+    def _run_pii_analysis(self, content: Optional[str] = None) -> Optional[List[str]]:
         """
-        Scans a text file for PII in chunks to avoid loading the whole file into memory.
-        Returns a list of found PII types.
+        Analyzes text for PII. If content is provided, it analyzes that.
+        If content is None, it reads the file in chunks for memory efficiency.
         """
+        found_pii_types: set[str] = set()
+        pii_analyzer = get_pii_analyzer()
+
         try:
-            pii_analyzer = get_pii_analyzer()
-            found_pii_types: set[str] = set()
+            if content:
+                # If content is already in memory, analyze it directly (truncated).
+                truncated_content = content[:1_000_000]
+                for lang in self.pii_languages:
+                    pii_results = pii_analyzer.analyze(text=truncated_content, language=lang)
+                    found_pii_types.update(p.entity_type for p in pii_results)
+            elif self.mime_type and "text" in self.mime_type:
+                # If no content, read the file in chunks for large files.
+                chunk_size = 500_000
+                with self.file_path.open("r", encoding="utf-8", errors="ignore") as f:
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        for lang in self.pii_languages:
+                            pii_results = pii_analyzer.analyze(text=chunk, language=lang)
+                            if pii_results:
+                                found_pii_types.update(p.entity_type for p in pii_results)
+            else:
+                # Not a text file and no content provided, so nothing to scan.
+                return None
 
-            # Presidio's default character limit is 1,000,000. We'll use a smaller chunk size.
-            chunk_size = 500_000 
-
-            with file_path.open("r", encoding=encoding, errors="ignore") as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    
-                    for lang in self.pii_languages:
-                        pii_results = pii_analyzer.analyze(text=chunk, language=lang)
-                        if pii_results:
-                            found_pii_types.update(p.entity_type for p in pii_results)
             return sorted(list(found_pii_types)) if found_pii_types else None
         except Exception as e:
-            logging.warning(f"Error during chunked PII scan for {file_path}: {e}")
-            return None
-
-    def _detect_pii(self, content: Optional[str]) -> Optional[list[str]]:
-        """Analyzes extracted content for PII."""
-        if not content:
-            return None
-        try:
-            pii_analyzer = get_pii_analyzer()
-            found_pii_types: set[str] = set()
-            # Truncate content to avoid errors with very large files in presidio
-            truncated_content = content[:1_000_000]
-            for lang in self.pii_languages:
-                pii_results = pii_analyzer.analyze(text=truncated_content, language=lang)
-                found_pii_types.update(p.entity_type for p in pii_results)
-            return sorted(list(found_pii_types)) if found_pii_types else None
-        except Exception:
+            logging.warning(f"Error during PII scan for {self.file_path}: {e}")
             return None
 
     def _extract_text_content(self) -> Optional[str]:
@@ -445,7 +434,7 @@ class FileProcessor:
                 yield FileMetadata(**metadata_kwargs)
                 # Then, yield metadata for all files inside the archive.
                 yield from self._process_archive()
-                return # Stop here, as the archive's content has been handled.
+                return  # Stop here, as the archive's content has been handled.
 
             if self.mime_type:
                 if self.mime_type.startswith("image"):
@@ -471,11 +460,12 @@ class FileProcessor:
             # --- PII Detection (Optimized) ---
             # For large text files, use the memory-efficient chunked scanner.
             # This avoids loading large content into memory just for PII analysis.
-            if self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 1_000_000:
-                metadata_kwargs["pii_types"] = self._process_text_pii_in_chunks(self.file_path)
+            if metadata_kwargs["content"]:
+                # For smaller files where content was already extracted, analyze the content directly.
+                metadata_kwargs["pii_types"] = self._run_pii_analysis(content=metadata_kwargs["content"])
             # For smaller files where content was already extracted, analyze the content directly.
-            elif metadata_kwargs["content"]:
-                metadata_kwargs["pii_types"] = self._detect_pii(metadata_kwargs["content"])
+            elif self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 0:
+                metadata_kwargs["pii_types"] = self._run_pii_analysis()
 
             yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:

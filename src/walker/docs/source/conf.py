@@ -16,9 +16,9 @@ author = 'Pablo'
 
 # -- Path setup --------------------------------------------------------------
 
-# Add the project's source directory to the path
-# This is necessary for Sphinx to find and import your modules for autodoc
-src_path = Path(__file__).parent.parent.parent.parent
+# Add the project's 'src' directory to the path. This allows Sphinx to find
+# the 'walker' package for autodoc.
+src_path = Path(__file__).resolve().parents[3] / 'src'
 sys.path.insert(0, str(src_path))
 
 
@@ -50,8 +50,11 @@ master_doc = 'index'
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'furo'
+html_theme = 'alabaster'
 html_static_path = ['_static']
+
+# Path to the logo file, relative to the static path.
+html_logo = '_static/logo.png'
 
 # -- Autodoc settings --------------------------------------------------------
 autodoc_member_order = 'bysource'

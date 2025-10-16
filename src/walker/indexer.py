@@ -186,31 +186,35 @@ class Indexer:
         using Fido for better identification.
         """
         self._prepare_settings()
-
+    
         if not self.app_config.use_fido:
             click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your walker.toml.", fg="yellow"))
             return
-
+    
         click.echo("Querying database for files with unknown MIME types...")
+        chunk_size = 10000
+        total_refined = 0
+    
         with database.get_session() as db_session:
-            files_to_refine = (
+            query = (
                 db_session.query(models.FileIndex)
                 .filter(models.FileIndex.mime_type.in_(("application/octet-stream", "inode/x-empty")))
-                .all()
             )
-
-        if not files_to_refine:
-            click.echo("No files with unknown MIME types found to refine.")
-            return
-
-        paths_to_process = [Path(f.path) for f in files_to_refine if Path(f.path).exists()]
-        click.echo(f"Found {len(paths_to_process)} files to refine with Fido.")
-
-        if not paths_to_process:
-            return
-
-        self._execute_processing_pool(paths_to_process, "Refining files")
-        click.echo("File refinement process complete.")
+            total_to_refine = query.count()
+    
+            if total_to_refine == 0:
+                click.echo("No files with unknown MIME types found to refine.")
+                return
+    
+            click.echo(f"Found {total_to_refine} files to refine with Fido. Processing in chunks...")
+            for i in range(0, total_to_refine, chunk_size):
+                chunk = query.offset(i).limit(chunk_size).all()
+                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                if paths_to_process:
+                    self._execute_processing_pool(paths_to_process, f"Refining chunk {i//chunk_size + 1}")
+                    total_refined += len(paths_to_process)
+    
+        click.echo(f"File refinement process complete. {total_refined} files were re-processed.")
 
     def run(self):
         """
