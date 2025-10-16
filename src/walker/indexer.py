@@ -74,17 +74,17 @@ class Indexer:
         self.final_exclude_list = {os.path.normcase(path) for path in self.cli_exclude_paths}
         self.final_exclude_list.update({os.path.normcase(d) for d in self.app_config.exclude_dirs})
 
-        # --- Apply platform-specific default exclusions for root-level scans ---
-        is_root_scan = any(p.parent == p for p in self.final_root_paths)
-        if is_root_scan:
-            if sys.platform == "win32":
-                click.echo("Windows root drive scan detected. Applying default system exclusions.")
-                self.final_exclude_list.update(models.DEFAULT_WINDOWS_EXCLUDES)
-            elif sys.platform == "darwin":  # macOS
-                click.echo("macOS root drive scan detected. Applying default system exclusions.")
-                self.final_exclude_list.update({p.lower() for p in models.DEFAULT_MACOS_EXCLUDES})
-            elif sys.platform.startswith("linux"):
-                click.echo("Linux root drive scan detected. Consider excluding /proc, /sys, /dev, /run.")
+        # --- Apply platform-specific default exclusions for all scans ---
+        # This is a safety measure to prevent accidental scanning of sensitive system files.
+        if sys.platform == "win32":
+            click.echo("Applying default Windows system exclusions.")
+            self.final_exclude_list.update({os.path.normcase(p) for p in models.DEFAULT_WINDOWS_EXCLUDES})
+        elif sys.platform == "darwin":  # macOS
+            click.echo("Applying default macOS system exclusions.")
+            self.final_exclude_list.update({os.path.normcase(p) for p in models.DEFAULT_MACOS_EXCLUDES})
+        elif sys.platform.startswith("linux"):
+            if any(p.parent == p for p in self.final_root_paths):
+                click.echo(click.style("Linux root scan detected. Consider excluding /proc, /sys, /dev, /run for safety.", fg="yellow"))
 
     def _prepare_settings(self):
         """
