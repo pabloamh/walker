@@ -41,20 +41,49 @@ def cache_tldextract_list(cache_dir: Path):
 
 def cache_fido_signatures(cache_dir: Path):
     """Downloads the latest PRONOM signature file for Fido."""
+    import urllib.error
+
     print(f"Caching Fido signature file to '{cache_dir}'...")
     cache_dir.mkdir(parents=True, exist_ok=True)
-
-    signature_file_url = "https://www.nationalarchives.gov.uk/pronom/latest/DROID_SignatureFile.xml"
     destination_path = cache_dir / "DROID_SignatureFile.xml"
 
     if destination_path.exists():
         print("...signature file already exists. Skipping.")
         return
 
+    # The URL pattern for signature files seems to be versioned. We will
+    # programmatically find the latest version.
+    base_url = "https://cdn.nationalarchives.gov.uk/documents/DROID_SignatureFile_V{version}.xml"
+    start_version = 120  # Start from a recent known version
+    latest_found_version = 0
+
+    headers = {'User-Agent': 'Mozilla/5.0'}
+
+    print("...finding latest PRONOM signature file version...")
+    for version in range(start_version, start_version + 50): # Check the next 50 versions
+        url = base_url.format(version=version)
+        try:
+            req = urllib.request.Request(url, method='HEAD', headers=headers)
+            with urllib.request.urlopen(req):
+                latest_found_version = version
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # We've gone past the latest version.
+                break
+            else:
+                print(f"...warning: Received unexpected HTTP status {e.code} for version {version}. Stopping search.")
+                break
+
+    if latest_found_version == 0:
+        print("...error: Could not find a valid signature file. Please check the URL pattern in the script.")
+        return
+
+    latest_url = base_url.format(version=latest_found_version)
+    print(f"...latest version found is {latest_found_version}. Downloading from {latest_url}")
+
     try:
-        # Fido doesn't have a built-in update command. We must download it manually.
-        print(f"Downloading from {signature_file_url}...")
-        with urllib.request.urlopen(signature_file_url) as response, open(destination_path, 'wb') as out_file:
+        request = urllib.request.Request(latest_url, headers=headers)
+        with urllib.request.urlopen(request) as response, open(destination_path, 'wb') as out_file:
             out_file.write(response.read())
         print("...caching complete!")
     except Exception as e:
