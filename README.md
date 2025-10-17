@@ -20,6 +20,8 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Categorized PII Detection**: Scans for Personally Identifiable Information (PII) and reports the specific types found (e.g., `CREDIT_CARD_NUMBER`, `PHONE_NUMBER`).
 - **Semantic Search**: Performs powerful, meaning-based searches on file content using AI embeddings.
+- **Deferred Text Extraction**: Speed up initial scans by skipping text extraction, then process text content later with a dedicated command.
+- **Configurable Archive Handling**: Exclude specific archive formats (like `.epub`, `.cbz`) from being extracted.
 - **Incremental Updates**: On subsequent runs, only processes new or modified files, making updates very fast.
 - **Scalable & Memory-Efficient**: Optimized to handle hundreds of thousands of files without running out of memory during reporting.
 - **Powerful CLI**: Easy-to-use command-line interface built with Click for indexing and reporting.
@@ -165,6 +167,18 @@ pii_languages = ["en", "es"]
 
 # use_fido: Enable Fido for more accurate file type identification.
 # use_fido = true
+
+# extract_text_on_scan: If set to false, the initial `index` command will
+# skip the time-consuming process of extracting text content from documents.
+# This allows for a much faster initial scan. You can then use the
+# `refine-text` command later to process only the text-based files.
+# extract_text_on_scan = false
+
+# archive_exclude_extensions: A list of file extensions for archive-like
+# files that should NOT be extracted. This is useful for formats like e-books
+# that are technically zip files but should be treated as single items.
+# Defaults include .epub, .cbz, .cbr.
+# archive_exclude_extensions = [".epub", ".cbz", ".cbr", ".apk"]
 ```
 ## Offline Setup and Usage
 

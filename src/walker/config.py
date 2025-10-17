@@ -43,6 +43,8 @@ class Config:
     memory_limit_gb: Optional[float] = None
     embedding_model_path: Optional[str] = "models/all-MiniLM-L6-v2"
     use_fido: bool = False
+    extract_text_on_scan: bool = True
+    archive_exclude_extensions: List[str] = attrs.field(factory=lambda: [".epub", ".cbz", ".cbr"])
 
 
 @functools.lru_cache(maxsize=1)
@@ -70,6 +72,9 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
     # Get the [tool.walker] table from the TOML file
     walker_config = config_data.get("tool", {}).get("walker", {})
     
+    # Default extensions for archives that should not be extracted
+    default_archive_excludes = [".epub", ".cbz", ".cbr"]
+
     loaded_config = Config(
         workers=walker_config.get("workers", 3),
         db_batch_size=walker_config.get("db_batch_size", 500),
@@ -79,6 +84,8 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
         memory_limit_gb=walker_config.get("memory_limit_gb"),
         embedding_model_path=walker_config.get("embedding_model_path", "models/all-MiniLM-L6-v2"),
         use_fido=walker_config.get("use_fido", False),
+        extract_text_on_scan=walker_config.get("extract_text_on_scan", True),
+        archive_exclude_extensions=list(set(default_archive_excludes + walker_config.get("archive_exclude_extensions", []))),
     )
     return loaded_config, config_path
 

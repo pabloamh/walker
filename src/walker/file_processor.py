@@ -429,12 +429,17 @@ class FileProcessor:
 
             # --- Handle Archives ---
             # For archives, we process the container file first, then its contents.
-            if self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz"):
+            is_archive_type = self.mime_type in ("application/zip", "application/x-tar", "application/gzip", "application/x-bzip2", "application/x-xz")
+            is_excluded_archive = self.file_path.suffix.lower() in self.app_config.archive_exclude_extensions
+
+            if is_archive_type and not is_excluded_archive:
                 # First, yield the metadata for the archive file itself.
                 yield FileMetadata(**metadata_kwargs)
                 # Then, yield metadata for all files inside the archive.
                 yield from self._process_archive()
                 return  # Stop here, as the archive's content has been handled.
+            # If it's an excluded archive type (e.g., epub), we fall through and process it
+            # like a regular file, without extracting its contents.
 
             if self.mime_type:
                 if self.mime_type.startswith("image"):
@@ -448,24 +453,25 @@ class FileProcessor:
                     # For audio, we also store media metadata in the 'exif_data' field.
                     metadata_kwargs["exif_data"] = self._process_audio()
                 
-            # For any text-based format, try to extract content.
-            metadata_kwargs["content"] = self._extract_text_content()
+            # --- Text Extraction and PII Analysis ---
+            # This can be disabled in the config for a faster initial scan.
+            if self.app_config.extract_text_on_scan:
+                # For any text-based format, try to extract content.
+                metadata_kwargs["content"] = self._extract_text_content()
 
-            # If content was extracted, generate an embedding for it.
-            if metadata_kwargs["content"]:
-                embedding_model = get_embedding_model()
-                embedding = embedding_model.encode(metadata_kwargs["content"])
-                metadata_kwargs["content_embedding"] = embedding.tobytes()
-            
-            # --- PII Detection (Optimized) ---
-            # For large text files, use the memory-efficient chunked scanner.
-            # This avoids loading large content into memory just for PII analysis.
-            if metadata_kwargs["content"]:
-                # For smaller files where content was already extracted, analyze the content directly.
-                metadata_kwargs["pii_types"] = self._run_pii_analysis(content=metadata_kwargs["content"])
-            # For smaller files where content was already extracted, analyze the content directly.
-            elif self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 0:
-                metadata_kwargs["pii_types"] = self._run_pii_analysis()
+                # If content was extracted, generate an embedding for it.
+                if metadata_kwargs["content"]:
+                    embedding_model = get_embedding_model()
+                    embedding = embedding_model.encode(metadata_kwargs["content"])
+                    metadata_kwargs["content_embedding"] = embedding.tobytes()
+                
+                # --- PII Detection (Optimized) ---
+                if metadata_kwargs["content"]:
+                    # For smaller files where content was already extracted, analyze the content directly.
+                    metadata_kwargs["pii_types"] = self._run_pii_analysis(content=metadata_kwargs["content"])
+                # For text files where content wasn't loaded (e.g., too large), use chunked scan.
+                elif self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 0:
+                    metadata_kwargs["pii_types"] = self._run_pii_analysis()
 
             yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:

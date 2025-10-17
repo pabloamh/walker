@@ -216,6 +216,51 @@ class Indexer:
     
         click.echo(f"File refinement process complete. {total_refined} files were re-processed.")
 
+    def refine_text_content(self):
+        """
+        Finds text-based files without content in the database and processes them
+        to extract text, generate embeddings, and find PII.
+        """
+        self._prepare_settings()
+        # Force text extraction on for this operation, regardless of config.
+        self.app_config.extract_text_on_scan = True
+
+        click.echo("Querying database for text files missing content...")
+        chunk_size = 10000
+        total_refined = 0
+
+        # MIME types that are likely to contain extractable text.
+        text_mime_types = [
+            "text/plain", "text/html", "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.oasis.opendocument.text",
+            "application/vnd.oasis.opendocument.spreadsheet",
+            "application/vnd.oasis.opendocument.presentation",
+            "message/rfc822",
+        ]
+
+        with database.get_session() as db_session:
+            query = (
+                db_session.query(models.FileIndex)
+                .filter(models.FileIndex.mime_type.in_(text_mime_types))
+                .filter(models.FileIndex.content.is_(None))
+            )
+            total_to_refine = query.count()
+
+            if total_to_refine == 0:
+                click.echo("No text files found that need content extraction.")
+                return
+
+            click.echo(f"Found {total_to_refine} files to process for text content. Processing in chunks...")
+            for i in range(0, total_to_refine, chunk_size):
+                chunk = query.offset(i).limit(chunk_size).all()
+                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                if paths_to_process:
+                    self._execute_processing_pool(paths_to_process, f"Extracting text in chunk {i//chunk_size + 1}")
+                    total_refined += len(paths_to_process)
+
+        click.echo(f"Text refinement process complete. {total_refined} files were re-processed.")
+
     def run(self):
         """
         Executes the main file indexing workflow.

@@ -110,6 +110,22 @@ def refine_unknowns(workers: int):
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
     indexer.refine_unknown_files()
 
+@cli.command(name="refine-text")
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_text(workers: int):
+    """
+    Post-processes text-based files to extract content and detect PII.
+
+    This command finds files that are likely to contain text (based on MIME
+    type) but do not yet have their content stored in the database. It is
+    useful if you ran the initial index with 'extract_text_on_scan = false'
+    in your configuration to speed up scanning.
+    """
+    from .indexer import Indexer
+    # Force text extraction to be on for this operation.
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_text_content()
+
 @cli.command(name="download-assets")
 def download_assets():
     """
