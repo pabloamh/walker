@@ -74,16 +74,23 @@ class Indexer:
         self.final_exclude_list = {os.path.normcase(path) for path in self.cli_exclude_paths}
         self.final_exclude_list.update({os.path.normcase(d) for d in self.app_config.exclude_dirs})
 
-        # --- Apply platform-specific default exclusions for all scans ---
-        # This is a safety measure to prevent accidental scanning of sensitive system files.
-        if sys.platform == "win32":
-            click.echo("Applying default Windows system exclusions.")
-            self.final_exclude_list.update({os.path.normcase(p) for p in models.DEFAULT_WINDOWS_EXCLUDES})
-        elif sys.platform == "darwin":  # macOS
-            click.echo("Applying default macOS system exclusions.")
-            self.final_exclude_list.update({os.path.normcase(p) for p in models.DEFAULT_MACOS_EXCLUDES})
-        elif sys.platform.startswith("linux"):
-            if any(p.parent == p for p in self.final_root_paths):
+        # --- Apply platform-specific default exclusions based on scan content, not host OS ---
+        for root_path in self.final_root_paths:
+            # Check if the root path looks like a Windows system drive
+            if any((root_path / p).exists() for p in ["Windows", "pagefile.sys", "Program Files"]):
+                click.echo(click.style(f"Windows system-like directory detected at '{root_path}'. Applying default Windows exclusions.", fg="blue"))
+                for exclude in models.DEFAULT_WINDOWS_EXCLUDES:
+                    self.final_exclude_list.add(os.path.normcase(str(root_path / exclude)))
+
+            # Check if the root path looks like a macOS system drive
+            elif any((root_path / p).exists() for p in ["System", "Library", "Applications"]):
+                click.echo(click.style(f"macOS system-like directory detected at '{root_path}'. Applying default macOS exclusions.", fg="blue"))
+                for exclude in models.DEFAULT_MACOS_EXCLUDES:
+                    # These are often defined from root, so we construct the full path
+                    self.final_exclude_list.add(os.path.normcase(str(root_path / exclude.lstrip('/'))))
+
+            # Check for scanning the root of a Linux-like system
+            elif root_path.parent == root_path: # This checks if path is '/'
                 click.echo(click.style("Linux root scan detected. Consider excluding /proc, /sys, /dev, /run for safety.", fg="yellow"))
 
     def _prepare_settings(self):

@@ -408,7 +408,8 @@ class FileProcessor:
                 fido_result = self._get_pronom_id_with_fido()
                 if fido_result:
                     pronom_id, fido_mimetype = fido_result
-                    if fido_mimetype:
+                    # Only override magic's result if Fido gives a more specific MIME type.
+                    if fido_mimetype and fido_mimetype != "application/octet-stream":
                         self.mime_type = fido_mimetype
             
             metadata_kwargs = {
