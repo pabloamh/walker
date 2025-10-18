@@ -703,6 +703,28 @@ files = [
 ]
 
 [[package]]
+name = "flet"
+version = "0.28.3"
+description = "Flet for Python - easily build interactive multi-platform apps in Python"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "flet-0.28.3-py3-none-any.whl", hash = "sha256:649bfc4af7933956ecf44963df6c0d997bff9ceeaf89d3c86d96803840cab83e"},
+]
+
+[package.dependencies]
+httpx = {version = "*", markers = "platform_system != \"Pyodide\""}
+oauthlib = {version = ">=3.2.2,<4.0.0", markers = "platform_system != \"Pyodide\""}
+repath = ">=0.9.0,<0.10.0"
+
+[package.extras]
+all = ["flet-cli (==0.28.3)", "flet-desktop (==0.28.3) ; platform_system == \"Darwin\" or platform_system == \"Windows\"", "flet-desktop-light (==0.28.3) ; platform_system == \"Linux\"", "flet-web (==0.28.3)"]
+cli = ["flet-cli (==0.28.3)"]
+desktop = ["flet-desktop (==0.28.3) ; platform_system == \"Darwin\" or platform_system == \"Windows\"", "flet-desktop-light (==0.28.3) ; platform_system == \"Linux\""]
+web = ["flet-web (==0.28.3)"]
+
+[[package]]
 name = "fsspec"
 version = "2025.9.0"
 description = "File-system specification"
@@ -863,6 +885,55 @@ files = [
 
 [package.extras]
 tests = ["pytest"]
+
+[[package]]
+name = "httpcore"
+version = "1.0.9"
+description = "A minimal low-level HTTP client."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "platform_system != \"Pyodide\""
+files = [
+    {file = "httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55"},
+    {file = "httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8"},
+]
+
+[package.dependencies]
+certifi = "*"
+h11 = ">=0.16"
+
+[package.extras]
+asyncio = ["anyio (>=4.0,<5.0)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+trio = ["trio (>=0.22.0,<1.0)"]
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+description = "The next generation HTTP client."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "platform_system != \"Pyodide\""
+files = [
+    {file = "httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad"},
+    {file = "httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc"},
+]
+
+[package.dependencies]
+anyio = "*"
+certifi = "*"
+httpcore = "==1.*"
+idna = "*"
+
+[package.extras]
+brotli = ["brotli ; platform_python_implementation == \"CPython\"", "brotlicffi ; platform_python_implementation != \"CPython\""]
+cli = ["click (==8.*)", "pygments (==2.*)", "rich (>=10,<14)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "huggingface-hub"
@@ -1857,6 +1928,24 @@ files = [
 ]
 
 [[package]]
+name = "oauthlib"
+version = "3.3.1"
+description = "A generic, spec-compliant, thorough implementation of the OAuth request-signing logic"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "platform_system != \"Pyodide\""
+files = [
+    {file = "oauthlib-3.3.1-py3-none-any.whl", hash = "sha256:88119c938d2b8fb88561af5f6ee0eec8cc8d552b7bb1f712743136eb7523b7a1"},
+    {file = "oauthlib-3.3.1.tar.gz", hash = "sha256:0f0f8aa759826a193cf66c12ea1af1637f87b9b4622d46e866952bb022e538c9"},
+]
+
+[package.extras]
+rsa = ["cryptography (>=3.0.0)"]
+signals = ["blinker (>=1.4.0)"]
+signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
+
+[[package]]
 name = "odfpy"
 version = "1.4.1"
 description = "Python API and tools to manipulate OpenDocument files"
@@ -2699,6 +2788,21 @@ files = [
     {file = "regex-2025.9.18-cp39-cp39-win_arm64.whl", hash = "sha256:039a9d7195fd88c943d7c777d4941e8ef736731947becce773c31a1009cb3c35"},
     {file = "regex-2025.9.18.tar.gz", hash = "sha256:c5ba23274c61c6fef447ba6a39333297d0c247f53059dba0bca415cac511edc4"},
 ]
+
+[[package]]
+name = "repath"
+version = "0.9.0"
+description = "Generate regular expressions form ExpressJS path patterns"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "repath-0.9.0-py3-none-any.whl", hash = "sha256:ee079d6c91faeb843274d22d8f786094ee01316ecfe293a1eb6546312bb6a318"},
+    {file = "repath-0.9.0.tar.gz", hash = "sha256:8292139bac6a0e43fd9d70605d4e8daeb25d46672e484ed31a24c7ce0aef0fb7"},
+]
+
+[package.dependencies]
+six = ">=1.9.0"
 
 [[package]]
 name = "requests"
@@ -4343,4 +4447,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "a46d71d4a56df599d179b9b6e61861763c66837fbff1e9f8a891dc1a762874cd"
+content-hash = "bdb377809ebfda3761ab5a5148cf98717de4c732c7b78cc56e8ea88f4f31ea4c"
