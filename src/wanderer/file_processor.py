@@ -165,7 +165,9 @@ class FileProcessor:
         """Generates a perceptual hash and extracts EXIF data for an image file."""
         try:
             with Image.open(self.file_path) as img:
-                p_hash = str(imagehash.phash(img))
+                p_hash = None
+                if self.app_config.compute_perceptual_hash:
+                    p_hash = str(imagehash.phash(img))
                 exif = self._process_exif(img)
                 return p_hash, exif
         except Exception:

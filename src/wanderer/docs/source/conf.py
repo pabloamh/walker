@@ -10,14 +10,14 @@ from pathlib import Path
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Walker'
+project = 'Wanderer'
 copyright = '2024, Pablo'
 author = 'Pablo'
 
 # -- Path setup --------------------------------------------------------------
 
 # Add the project's 'src' directory to the path. This allows Sphinx to find
-# the 'walker' package for autodoc.
+# the 'wanderer' package for autodoc.
 src_path = Path(__file__).resolve().parents[3] / 'src'
 sys.path.insert(0, str(src_path))
 
@@ -66,6 +66,6 @@ myst_enable_extensions = [
 
 # -- Sphinx-Click settings ---------------------------------------------------
 # This tells sphinx-click where to find your Click application object.
-sphinx_click_mod_path = 'walker.main'
+sphinx_click_mod_path = 'wanderer.main'
 sphinx_click_obj = 'cli'
 sphinx_click_show_hidden = False

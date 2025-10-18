@@ -9,7 +9,7 @@ from . import config, database, models, log_manager
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
-    log_file = Path(__file__).parent / "walker.log"
+    log_file = Path(__file__).parent / "wanderer.log"
     # Use a custom handler to prevent huge log files from repetitive errors.
     handler = log_manager.DeduplicatingLogHandler(log_file, mode='a')
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -73,7 +73,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
-    If ROOT_PATHS are not provided, it will use 'scan_dirs' from walker.toml.
+    If ROOT_PATHS are not provided, it will use 'scan_dirs' from wanderer.toml.
     """
     from .indexer import Indexer
 
@@ -214,6 +214,13 @@ def list_pii_files():
     from .reporter import Reporter
     reporter = Reporter()
     reporter.list_pii_files()
+
+@cli.command(name="gui")
+def gui():
+    """Launches the Wanderer graphical user interface."""
+    from . import gui
+    import flet as ft
+    ft.app(target=gui.main)
 
 if __name__ == "__main__":
     cli()
