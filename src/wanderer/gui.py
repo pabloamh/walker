@@ -80,12 +80,41 @@ def main(page: ft.Page):
     scan_progress = ft.ProgressBar(width=400, visible=False)
     scan_status_text = ft.Text("Idle.", italic=True)
 
-    view_scan = ft.Column(
+    new_scan_view = ft.Column(
         controls=[
-            ft.Text("Scan Management", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
             ft.Text("Select directories to scan:"), scan_targets_list,
             ft.Text("Scan Options:"), ft.Row(controls=[scan_option_text, scan_option_phash, scan_option_fido]),
             ft.Row([start_scan_button, stop_scan_button]), scan_progress, scan_status_text],
+        spacing=15,
+    )
+
+    # --- Refine View ---
+    refine_status_text = ft.Text("Idle.", italic=True)
+    refine_progress = ft.ProgressBar(width=400, visible=False)
+    refine_buttons = [
+        ft.ElevatedButton("Refine Unknown Files (Fido)", on_click=None, disabled=True),
+        ft.ElevatedButton("Refine All Text Content", on_click=None, disabled=True),
+        ft.ElevatedButton("Refine All Image Hashes", on_click=None, disabled=True),
+    ]
+
+    refine_data_view = ft.Column(
+        controls=[
+            ft.Text("Run deep analysis on files already in the database. This is useful after a fast initial scan."),
+            ft.Row(controls=refine_buttons),
+            refine_progress,
+            refine_status_text,
+        ],
+        spacing=15,
+    )
+
+    view_scan = ft.Column(
+        controls=[
+            ft.Text("Scan Management", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
+            ft.Tabs(
+                selected_index=0,
+                tabs=[ft.Tab(text="New Scan", content=new_scan_view), ft.Tab(text="Refine Data", content=refine_data_view)],
+            ),
+        ],
         spacing=15,
     )
 
@@ -314,6 +343,10 @@ The search will find documents and notes that are conceptually related to what y
                 ft.Row([ft.ElevatedButton("Add Directory", icon=ft.Icons.FOLDER_OPEN, on_click=lambda _: directory_picker.get_directory_path())]),
                 ft.Divider(),
                 ft.Text("Excluded Directories & Patterns", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                ft.Text(
+                    "Use folder names (e.g., 'node_modules') or glob patterns (e.g., '*.tmp') to exclude them everywhere. Full paths are not typically needed.",
+                    style=ft.TextThemeStyle.BODY_SMALL,
+                ),
                  ft.Container(
                     content=exclude_dirs_list,
                     border=ft.border.all(1, ft.Colors.OUTLINE),
@@ -380,6 +413,20 @@ The **Settings** page allows you to configure how Wanderer operates. Changes mad
 - **Excluded Directories & Patterns**: Configure a list of folders and patterns (like `node_modules` or `*.tmp`) to ignore during scans.
 - **Offline Assets**: Manage the AI models and other data needed for features like semantic search and PII detection.
 
+## Advanced Workflow: Staged Scanning
+
+For very large collections, it's more efficient to perform a fast initial scan and then selectively "refine" the data.
+
+1.  **Fast Initial Scan**: In **Settings**, disable "Extract Text/PII" and "Compute Perceptual Hash". Then run a scan from the **Scan** page. This will quickly index all files with basic metadata.
+2.  **Selective Refinement**: Use the command line to run deeper analysis on specific folders. For example:
+    - To analyze all documents in your `Documents` folder:
+      `poetry run python -m wanderer.main refine-text-by-path /path/to/Documents`
+    - To compute perceptual hashes for your `Pictures` folder:
+      `poetry run python -m wanderer.main refine-images-by-path /path/to/Pictures`
+    - To compute perceptual hashes for *only JPEGs* in your `Photos` folder:
+      `poetry run python -m wanderer.main refine-images-by-mime-and-path --mime-type "image/jpeg" /path/to/Photos`
+    - To force a high-accuracy Fido scan on an `Downloads` folder:
+      `poetry run python -m wanderer.main refine-fido-by-path /path/to/Downloads`
 """
     view_help = ft.Column(
         scroll=ft.ScrollMode.ADAPTIVE,

@@ -268,6 +268,124 @@ class Indexer:
 
         click.echo(f"Text refinement process complete. {total_refined} files were re-processed.")
 
+    def refine_text_content_by_path(self, paths: Tuple[Path, ...]):
+        """
+        Finds files under a specific path without content and processes them
+        to extract text, generate embeddings, and find PII.
+        """
+        self._prepare_settings()
+        # Force text extraction on for this operation.
+        self.app_config.extract_text_on_scan = True
+
+        click.echo(f"Querying database for text files under the specified paths...")
+        chunk_size = 10000
+        total_refined = 0
+
+        with database.get_session() as db_session:
+            # Build a list of LIKE clauses for each path
+            path_filters = [models.FileIndex.path.like(f"{str(p.resolve())}%") for p in paths]
+            
+            query = (
+                db_session.query(models.FileIndex)
+                .filter(database.or_(*path_filters))
+                .filter(models.FileIndex.content.is_(None))
+            )
+            total_to_refine = query.count()
+
+            if total_to_refine == 0:
+                click.echo("No files found under the specified paths that need content extraction.")
+                return
+
+            click.echo(f"Found {total_to_refine} files to process for text content. Processing in chunks...")
+            for i in range(0, total_to_refine, chunk_size):
+                chunk = query.offset(i).limit(chunk_size).all()
+                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                if paths_to_process:
+                    self._execute_processing_pool(paths_to_process, f"Extracting text in chunk {i//chunk_size + 1}")
+                    total_refined += len(paths_to_process)
+
+        click.echo(f"Path-based text refinement complete. {total_refined} files were re-processed.")
+
+    def refine_image_content_by_path(self, paths: Tuple[Path, ...], mime_types: Optional[Tuple[str, ...]] = None):
+        """
+        Finds image files under a specific path without a perceptual hash
+        and processes them to generate it. Can be filtered by MIME type.
+        """
+        self._prepare_settings()
+        self.app_config = attrs.evolve(self.app_config, compute_perceptual_hash=True)
+        # Force perceptual hash computation on for this operation.
+        self.app_config.compute_perceptual_hash = True
+
+        click.echo(f"Querying database for image files under the specified paths...")
+        chunk_size = 10000
+        total_refined = 0
+
+        with database.get_session() as db_session:
+            # Build a list of LIKE clauses for each path
+            path_filters = [models.FileIndex.path.like(f"{str(p.resolve())}%") for p in paths]
+
+            query = (
+                db_session.query(models.FileIndex)
+                .filter(database.or_(*path_filters))
+                .filter(
+                    models.FileIndex.mime_type.in_(mime_types)
+                    if mime_types
+                    else models.FileIndex.mime_type.like("image/%")
+                )
+                .filter(models.FileIndex.perceptual_hash.is_(None))
+            )
+            total_to_refine = query.count()
+
+            if total_to_refine == 0:
+                click.echo("No image files found under the specified paths that need p-hash computation.")
+                return
+
+            click.echo(f"Found {total_to_refine} images to process for perceptual hashes. Processing in chunks...")
+            for i in range(0, total_to_refine, chunk_size):
+                chunk = query.offset(i).limit(chunk_size).all()
+                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                if paths_to_process:
+                    self._execute_processing_pool(paths_to_process, f"Computing p-hashes in chunk {i//chunk_size + 1}")
+                    total_refined += len(paths_to_process)
+
+        click.echo(f"Path-based image refinement complete. {total_refined} files were re-processed.")
+
+    def refine_fido_by_path(self, paths: Tuple[Path, ...]):
+        """
+        Forces a Fido rescan on all files under a specific path.
+        """
+        self._prepare_settings()
+        if not self.app_config.use_fido:
+            click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your wanderer.toml.", fg="yellow"))
+            return
+
+        click.echo(f"Querying database for all files under the specified paths for Fido rescan...")
+        chunk_size = 10000
+        total_refined = 0
+
+        with database.get_session() as db_session:
+            path_filters = [models.FileIndex.path.like(f"{str(p.resolve())}%") for p in paths]
+            
+            query = (
+                db_session.query(models.FileIndex)
+                .filter(database.or_(*path_filters))
+            )
+            total_to_refine = query.count()
+
+            if total_to_refine == 0:
+                click.echo("No files found under the specified paths to refine with Fido.")
+                return
+
+            click.echo(f"Found {total_to_refine} files to refine with Fido. Processing in chunks...")
+            for i in range(0, total_to_refine, chunk_size):
+                chunk = query.offset(i).limit(chunk_size).all()
+                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                if paths_to_process:
+                    self._execute_processing_pool(paths_to_process, f"Fido-refining chunk {i//chunk_size + 1}")
+                    total_refined += len(paths_to_process)
+
+        click.echo(f"Path-based Fido refinement complete. {total_refined} files were re-processed.")
+
     def run(self):
         """
         Executes the main file indexing workflow.

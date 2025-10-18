@@ -126,6 +126,63 @@ def refine_text(workers: int):
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
     indexer.refine_text_content()
 
+@cli.command(name="refine-text-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_text_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Extracts text content for all files under a specific path.
+
+    This is useful for performing a deep text analysis on a targeted
+    directory (e.g., '~/Documents') after a fast initial scan.
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_text_content_by_path(paths)
+
+@cli.command(name="refine-images-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_images_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Computes perceptual hashes for all images under a specific path.
+
+    This is useful for enabling similar-image search on a targeted
+    directory (e.g., '~/Pictures') after a fast initial scan.
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_image_content_by_path(paths)
+
+@cli.command(name="refine-fido-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_fido_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Forces a Fido rescan for all files under a specific path.
+
+    This is useful for ensuring the highest accuracy file identification
+    on a targeted directory (e.g., '~/Scans').
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_fido_by_path(paths)
+
+@cli.command(name="refine-images-by-mime-and-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--mime-type', 'mime_types', multiple=True, required=True, help='MIME type to target (e.g., "image/jpeg"). Can be used multiple times.')
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_images_by_mime_and_path(paths: Tuple[Path, ...], mime_types: Tuple[str, ...], workers: int):
+    """
+    Computes perceptual hashes for specific image MIME types under a path.
+
+    Example: phash for jpegs under '~/Pictures':
+    ... refine-images-by-mime-and-path --mime-type "image/jpeg" ~/Pictures
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_image_content_by_path(paths, mime_types=mime_types)
+
 @cli.command(name="download-assets")
 def download_assets():
     """
