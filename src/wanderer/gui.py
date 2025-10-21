@@ -162,10 +162,48 @@ async def main(page: ft.Page):
     # --- Refine View ---
     refine_status_text = ft.Text("Idle.", italic=True)
     refine_progress = ft.ProgressBar(width=400, visible=False)
+
+    async def run_refine_job(e, refine_type: str):
+        """Generic handler to run a refinement job in the background."""
+        # --- UI Update: Show processing state ---
+        for btn in refine_buttons:
+            btn.disabled = True
+        refine_progress.visible = True
+        refine_progress.value = None  # Indeterminate
+        refine_status_text.value = f"Starting {refine_type} refinement..."
+        await page.update_async()
+
+        def refine_thread_job():
+            """The actual refinement function to run in a thread."""
+            idx = indexer.Indexer(root_paths=(), workers=app_config.workers, memory_limit_gb=app_config.memory_limit_gb, exclude_paths=())
+            
+            if refine_type == "fido":
+                idx.refine_unknown_files()
+            elif refine_type == "text":
+                idx.refine_text_content()
+            # Add other refinement types here if needed in the future
+
+            # --- UI Update: Reset to idle state ---
+            async def finish_refine():
+                for btn in refine_buttons:
+                    btn.disabled = False
+                refine_progress.visible = False
+                refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
+                await page.update_async()
+            
+            page.run_threadsafe(finish_refine())
+
+        threading.Thread(target=refine_thread_job, daemon=True).start()
+
     refine_buttons = [
-        ft.ElevatedButton("Refine Unknown Files (Fido)", on_click=None, disabled=True),
-        ft.ElevatedButton("Refine All Text Content", on_click=None, disabled=True),
-        ft.ElevatedButton("Refine All Image Hashes", on_click=None, disabled=True),
+        ft.ElevatedButton(
+            "Refine Unknown Files (Fido)", on_click=lambda e: run_refine_job(e, "fido"),
+            tooltip="Rescan files with generic types like 'application/octet-stream' using Fido for better accuracy."
+        ),
+        ft.ElevatedButton(
+            "Refine All Text Content", on_click=lambda e: run_refine_job(e, "text"),
+            tooltip="Extract text, PII, and embeddings for text-based files that were skipped in a fast initial scan."
+        ),
     ]
 
     refine_data_view = ft.Column(

@@ -193,9 +193,8 @@ poetry run python -m wanderer.main download-assets
 This script will perform the following actions:
 1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
 2.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
-3.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
-4.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/wanderer/models/tldextract_cache`.
-5.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your `wanderer.toml`.
+3.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/wanderer/models/tldextract_cache`.
+4.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your `wanderer.toml`.
 
 ### Step 2: Update Configuration for Offline Use
 
@@ -268,7 +267,7 @@ Once your index is built, you can run reports to find duplicates, analyze your d
 This command finds all files that are bit-for-bit identical by comparing their SHA-256 hashes. It will identify the oldest file in each set as the "Source".
 
 ```bash
-poetry run python -m walker.main find-dupes
+poetry run python -m wanderer.main find-dupes
 ```
 
 #### Find Similar Images
