@@ -1,4 +1,4 @@
-# walker/worker.py
+# wanderer/worker.py
 import logging
 import queue
 import resource

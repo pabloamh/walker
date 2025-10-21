@@ -1,4 +1,4 @@
-# walker/config.py
+# wanderer/config.py
 import tomllib
 import tomli_w
 import functools
@@ -66,14 +66,23 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
     If not found, it returns a default configuration and None for the path.
     Returns a tuple of (Config, Optional[Path]).
     """
-    # Look for wanderer.toml in the current directory first. This is the most
-    # intuitive location for a user-facing configuration file.
-    search_paths = [Path.cwd(), Path(__file__).parent]
+    # Search for wanderer.toml upwards from the script directory.
+    # This is a robust way to find the project root.
+    start_dir = Path(__file__).parent
     config_path = None
-    for p in search_paths:
-        if (p / "wanderer.toml").is_file():
-            config_path = p / "wanderer.toml"
+    for parent in [start_dir] + list(start_dir.parents):
+        potential_path = parent / "wanderer.toml"
+        if potential_path.is_file():
+            config_path = potential_path
             break
+    # As a fallback, check the current working directory.
+    if not config_path and (Path.cwd() / "wanderer.toml").is_file():
+        config_path = Path.cwd() / "wanderer.toml"
+
+    if not config_path:
+        # If still not found, check inside src/wanderer relative to cwd
+        if (Path.cwd() / "src" / "wanderer" / "wanderer.toml").is_file():
+            config_path = Path.cwd() / "src" / "wanderer" / "wanderer.toml"
 
     config_data: Dict[str, Any] = {}
 

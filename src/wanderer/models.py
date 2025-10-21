@@ -1,4 +1,4 @@
- # walker/models.py
+ # wanderer/models.py
 from typing import Optional
 
 import attrs

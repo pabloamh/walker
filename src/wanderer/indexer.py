@@ -1,4 +1,4 @@
-# walker/indexer.py
+# wanderer/indexer.py
 import logging
 import multiprocessing
 from datetime import datetime

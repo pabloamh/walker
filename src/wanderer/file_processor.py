@@ -1,4 +1,4 @@
-# walker/file_processor.py
+# wanderer/file_processor.py
 import email
 import logging
 import functools

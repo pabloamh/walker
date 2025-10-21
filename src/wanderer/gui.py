@@ -75,7 +75,7 @@ async def main(page: ft.Page):
                     else:
                         scan_progress.value = None # Indeterminate
                     page.update()
-                page.run_threadsafe(update_ui())
+                page.run_task(update_ui())
 
             # Get selected paths from the GUI
             selected_paths = [
@@ -88,7 +88,7 @@ async def main(page: ft.Page):
             async def finish_scan():
                 await stop_scan_click(None, "Scan finished.")
                 await refresh_scan_history()
-            page.run_threadsafe(finish_scan())
+            page.run_task(finish_scan())
 
         threading.Thread(target=scan_job, daemon=True).start()
         page.update()
@@ -153,7 +153,7 @@ async def main(page: ft.Page):
                             subtitle=ft.Text(f"Status: {log.status} | Files: {log.files_scanned} | Duration: {duration}"),
                         )
                     )
-        scan_history_list.update()
+        await scan_history_list.update()
     
     scan_history_view = ft.Column(
         controls=[ft.Row([ft.Text("Recent Scans"), ft.IconButton(icon=ft.Icons.REFRESH, on_click=refresh_scan_history, tooltip="Refresh History")]), scan_history_list], expand=True
@@ -191,17 +191,17 @@ async def main(page: ft.Page):
                 refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
                 page.update()
             
-            page.run_threadsafe(finish_refine())
+            page.run_task(finish_refine())
 
         threading.Thread(target=refine_thread_job, daemon=True).start()
 
     refine_buttons = [
         ft.ElevatedButton(
-            "Refine Unknown Files (Fido)", on_click=lambda e: run_refine_job(e, "fido"),
+            "Refine Unknown Files (Fido)", on_click=lambda e: asyncio.create_task(run_refine_job(e, "fido")),
             tooltip="Rescan files with generic types like 'application/octet-stream' using Fido for better accuracy."
         ),
         ft.ElevatedButton(
-            "Refine All Text Content", on_click=lambda e: run_refine_job(e, "text"),
+            "Refine All Text Content", on_click=lambda e: asyncio.create_task(run_refine_job(e, "text")),
             tooltip="Extract text, PII, and embeddings for text-based files that were skipped in a fast initial scan."
         ),
     ]
@@ -329,8 +329,6 @@ The search will find documents and notes that are conceptually related to what y
                 scan_targets_list.controls.append(ft.Checkbox(label=e.path, value=True))
                 start_scan_button.disabled = False
                 await update_list_views()
-                scan_targets_list.update()
-                start_scan_button.update()
 
     async def add_excluded_dir(e):
         dir_to_exclude = new_exclude_dir_field.value
@@ -373,6 +371,12 @@ The search will find documents and notes that are conceptually related to what y
         if config_path:
             try:
                 # Read the existing toml file to preserve structure and comments
+                # Add a snackbar for user feedback
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Settings saved successfully!"),
+                    action="OK",
+                )
+                page.snack_bar.open = True
                 with open(config_path, "rb") as f:
                     full_toml = tomllib.load(f)
 
@@ -387,6 +391,7 @@ The search will find documents and notes that are conceptually related to what y
                 config.save_config_to_path(full_toml, config_path)
             except Exception as ex:
                 print(f"Error saving config: {ex}")
+        page.update()
 
     # Populate initial lists
     await update_list_views()
@@ -447,6 +452,7 @@ The search will find documents and notes that are conceptually related to what y
     embedding_model_status = ft.Text("Checking...", italic=True)
     pii_model_status = ft.Text("Checking...", italic=True)
     fido_status = ft.Text("Checking...", italic=True)
+    asset_status_progress = ft.ProgressBar(visible=False)
 
     async def run_asset_download(e, asset_type: str):
         """Handles the download process for a given asset in a background thread."""
@@ -470,10 +476,10 @@ The search will find documents and notes that are conceptually related to what y
                 download_assets.cache_fido_signatures(models_dir / 'fido_cache')
             
             # After download, trigger a UI update from the main thread
-            page.run_threadsafe(update_asset_status)
+            page.run_task(update_asset_status())
 
         # Run the download in a separate thread to not block the UI
-        thread = threading.Thread(target=download_job, daemon=True)
+        thread = threading.Thread(target=download_job, daemon=True) # type: ignore
         thread.start()
 
     download_embedding_button = ft.ElevatedButton(
@@ -488,6 +494,11 @@ The search will find documents and notes that are conceptually related to what y
 
     async def update_asset_status():
         """Checks for offline assets and updates the UI accordingly."""
+        asset_status_progress.visible = True
+        for btn in [download_embedding_button, download_pii_button, download_fido_button]:
+            btn.disabled = True
+        page.update()
+
         script_dir = Path(__file__).parent
         models_dir = script_dir / "models"
 
@@ -541,6 +552,8 @@ The search will find documents and notes that are conceptually related to what y
             download_fido_button.text = "Download"
             download_fido_button.icon = ft.icons.DOWNLOAD
 
+        asset_status_progress.visible = False
+        # The buttons will be re-enabled by the logic above if a download is needed.
         page.update()
 
     embedding_model_path_field = ft.TextField(
@@ -551,6 +564,7 @@ The search will find documents and notes that are conceptually related to what y
     )
 
     asset_management_view = ft.Column([
+        asset_status_progress,
         ft.Row([
             ft.Text("Default Semantic Search Model", expand=True),
             embedding_model_status,
@@ -750,8 +764,12 @@ For very large collections, it's more efficient to perform a fast initial scan a
     page.on_window_event = window_event
 
     # --- Initial UI Updates on Page Load ---
-    async def on_page_load(e=None):
-        await update_asset_status()
-        await refresh_scan_history()
+    def on_load_sync(e=None):
+        """Synchronous handler for page load that runs async tasks in a thread."""
+        async def startup_tasks():
+            await update_asset_status()
+            await refresh_scan_history()
+        
+        threading.Thread(target=lambda: asyncio.run(startup_tasks()), daemon=True).start()
 
-    page.on_load = on_page_load
+    page.on_load = on_load_sync

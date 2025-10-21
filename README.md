@@ -26,6 +26,7 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 - **Scalable & Memory-Efficient**: Optimized to handle hundreds of thousands of files without running out of memory during reporting.
 - **Powerful CLI**: Easy-to-use command-line interface built with Click for indexing and reporting.
 - **Flexible Configuration**: Uses a `walker.toml` file for persistent settings and supports command-line overrides.
+- **Flexible Configuration**: Uses a `wanderer.toml` file for persistent settings and supports command-line overrides.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 ## Quick Start
 
@@ -192,6 +193,7 @@ poetry run python -m wanderer.main download-assets
 
 This script will perform the following actions:
 1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
+1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/wanderer/models/all-MiniLM-L6-v2`.
 2.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
 3.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/wanderer/models/tldextract_cache`.
 4.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your `wanderer.toml`.
@@ -276,10 +278,10 @@ This command finds images that are visually identical or similar. By default, it
 
 ```bash
 # Find exact duplicates
-poetry run python -m walker.main find-image-dupes
+poetry run python -m wanderer.main find-image-dupes
 
 # Find very similar images (e.g., different resolutions or minor edits)
-poetry run python -m walker.main find-image-dupes --threshold 4
+poetry run python -m wanderer.main find-image-dupes --threshold 4
 ```
 
 #### Find Similar Text

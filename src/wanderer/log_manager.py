@@ -1,4 +1,4 @@
-# walker/log_manager.py
+# wanderer/log_manager.py
 import logging
 import re
 from collections import defaultdict

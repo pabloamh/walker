@@ -1,4 +1,4 @@
-# walker/scanner.py
+# wanderer/scanner.py
 import fnmatch
 import os
 import sys
