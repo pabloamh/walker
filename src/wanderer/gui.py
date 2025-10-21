@@ -59,7 +59,7 @@ async def main(page: ft.Page):
         scan_option_text.disabled = True
         scan_option_phash.disabled = True
         scan_option_fido.disabled = True
-        await page.update_async()
+        await page.update()
 
         # --- Backend Logic: Run indexer in a thread ---
         def scan_job():
@@ -91,7 +91,7 @@ async def main(page: ft.Page):
             page.run_threadsafe(finish_scan())
 
         threading.Thread(target=scan_job, daemon=True).start()
-        await page.update_async()
+        await page.update()
 
     async def stop_scan_click(e, message: str | None = None):
         # This is where we would signal the scan thread to stop.
@@ -106,7 +106,7 @@ async def main(page: ft.Page):
         scan_option_text.disabled = False
         scan_option_phash.disabled = False
         scan_option_fido.disabled = False
-        await page.update_async()
+        await page.update()
 
     start_scan_button = ft.ElevatedButton(
         "Start Scan",
@@ -154,7 +154,7 @@ async def main(page: ft.Page):
                         )
                     )
         await scan_history_list.update_async()
-
+    
     scan_history_view = ft.Column(
         controls=[ft.Row([ft.Text("Recent Scans"), ft.IconButton(icon=ft.Icons.REFRESH, on_click=refresh_scan_history, tooltip="Refresh History")]), scan_history_list], expand=True
     )
@@ -171,7 +171,7 @@ async def main(page: ft.Page):
         refine_progress.visible = True
         refine_progress.value = None  # Indeterminate
         refine_status_text.value = f"Starting {refine_type} refinement..."
-        await page.update_async()
+        await page.update()
 
         def refine_thread_job():
             """The actual refinement function to run in a thread."""
@@ -189,7 +189,7 @@ async def main(page: ft.Page):
                     btn.disabled = False
                 refine_progress.visible = False
                 refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
-                await page.update_async()
+                await page.update()
             
             page.run_threadsafe(finish_refine())
 
@@ -273,7 +273,7 @@ The search will find documents and notes that are conceptually related to what y
             ft.Text(f"Results for: {report_name}", style=ft.TextThemeStyle.HEADLINE_SMALL),
             ft.Text("Report results will be displayed here."),
         ])
-        await page.update_async()
+        await page.update()
 
     reports_list_view = ft.ListView(expand=True, spacing=10)
     for report in reports_available:
@@ -289,7 +289,7 @@ The search will find documents and notes that are conceptually related to what y
     report_content_area = ft.Container(content=reports_list_view, expand=True)
     async def show_report_list(e=None):
         report_content_area.content = reports_list_view
-        await page.update_async()
+        await page.update()
 
     view_reports = ft.Column(
         [ft.Text("Reports", style=ft.TextThemeStyle.HEADLINE_MEDIUM), report_content_area], expand=True
@@ -319,7 +319,7 @@ The search will find documents and notes that are conceptually related to what y
             exclude_dirs_list.controls.append(
                 ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda _, dir=d: remove_exclude_dir(dir), tooltip="Remove")])
             )
-        await page.update_async()
+        await page.update()
 
     async def on_directory_picked(e: ft.FilePickerResultEvent):
         if e.path:
@@ -329,8 +329,8 @@ The search will find documents and notes that are conceptually related to what y
                 scan_targets_list.controls.append(ft.Checkbox(label=e.path, value=True))
                 start_scan_button.disabled = False
                 await update_list_views()
-                await scan_targets_list.update_async()
-                await start_scan_button.update_async()
+                await scan_targets_list.update()
+                await start_scan_button.update()
 
     async def add_excluded_dir(e):
         dir_to_exclude = new_exclude_dir_field.value
@@ -454,7 +454,7 @@ The search will find documents and notes that are conceptually related to what y
         e.control.text = "Downloading..."
         progress_ring = ft.ProgressRing(width=16, height=16, stroke_width=2)
         e.control.icon = progress_ring
-        await page.update_async()
+        await page.update()
 
         def download_job():
             """The actual download function to run in a thread."""
@@ -541,7 +541,7 @@ The search will find documents and notes that are conceptually related to what y
             download_fido_button.text = "Download"
             download_fido_button.icon = ft.icons.DOWNLOAD
 
-        await page.update_async()
+        await page.update()
 
     embedding_model_path_field = ft.TextField(
         label="Custom Embedding Model Path",
@@ -593,7 +593,7 @@ The search will find documents and notes that are conceptually related to what y
                     padding=10,
                     height=150,
                 ),
-                ft.Row([ft.ElevatedButton("Add Directory", icon=ft.Icons.FOLDER_OPEN, on_click=lambda _: directory_picker.get_directory_path_async())]),
+                ft.Row([ft.ElevatedButton("Add Directory", icon=ft.Icons.FOLDER_OPEN, on_click=lambda _: directory_picker.get_directory_path())]),
                 ft.Divider(),
                 ft.Text("Excluded Directories & Patterns", style=ft.TextThemeStyle.TITLE_MEDIUM),
                 ft.Text(
@@ -716,7 +716,7 @@ For very large collections, it's more efficient to perform a fast initial scan a
             main_content.content = view_help
         elif e.control.selected_index == 5:
             main_content.content = view_about
-        await page.update_async()
+        await page.update()
 
     navigation_rail = ft.NavigationRail(
         selected_index=0,
@@ -739,13 +739,13 @@ For very large collections, it's more efficient to perform a fast initial scan a
         ft.Row([navigation_rail, ft.VerticalDivider(width=1), main_content], expand=True)
     )
 
-    await page.update_async()
+    await page.update()
 
     # --- Graceful Shutdown Handler ---
     # This handles the window closing event to prevent a common Flutter error on exit.
     async def window_event(e):
         if e.data == "close":
-            await page.window_destroy_async()
+            page.window_destroy()
 
     page.on_window_event = window_event
 
