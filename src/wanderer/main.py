@@ -277,6 +277,7 @@ def gui():
     """Launches the Wanderer graphical user interface."""
     from . import gui
     import flet as ft
+    database.init_db()
     ft.app(target=gui.main)
 
 if __name__ == "__main__":

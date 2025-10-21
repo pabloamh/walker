@@ -311,13 +311,13 @@ The search will find documents and notes that are conceptually related to what y
         scan_dirs_list.controls.clear()
         for d in sorted(app_config.scan_dirs):
             scan_dirs_list.controls.append(
-                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda _, dir=d: remove_scan_dir(dir), tooltip="Remove")])
+                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(remove_scan_dir(dir)), tooltip="Remove")])
             )
         
         exclude_dirs_list.controls.clear()
         for d in sorted(app_config.exclude_dirs):
             exclude_dirs_list.controls.append(
-                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda _, dir=d: remove_exclude_dir(dir), tooltip="Remove")])
+                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(remove_exclude_dir(dir)), tooltip="Remove")])
             )
         page.update()
 
