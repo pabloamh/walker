@@ -10,131 +10,86 @@ from datetime import datetime
 import threading
 
 
-async def main(page: ft.Page):
-    """
-    The main async function to build and run the Flet GUI for Wanderer.
-    """
-    page.title = "Wanderer"
-    page.window_width = 1000
-    page.window_height = 700
-    page.vertical_alignment = ft.MainAxisAlignment.START
+class WandererGUI:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.app_config, self.config_path = config.load_config_with_path()
+        self.page.title = "Wanderer"
+        self.page.window_width = 1000
+        self.page.window_height = 700
+        self.page.vertical_alignment = ft.MainAxisAlignment.START
 
-    # Load application configuration
-    app_config, config_path = config.load_config_with_path()
-
-    # --- Scan View ---
-    scan_targets_list = ft.ListView(expand=False, spacing=5, height=200)
-    if app_config.scan_dirs:
-        for d in app_config.scan_dirs:
-            scan_targets_list.controls.append(ft.Checkbox(label=d, value=True))
-    else:
-        scan_targets_list.controls.append(ft.Text("No scan directories configured. Please add some in Settings."))
-
-    scan_option_text = ft.Checkbox(
-        label="Extract Text & PII",
-        value=app_config.extract_text_on_scan
-    )
-    scan_option_phash = ft.Checkbox(
-        label="Compute Perceptual Hashes",
-        value=app_config.compute_perceptual_hash
-    )
-    scan_option_fido = ft.Checkbox(
-        label="Enable Fido",
-        value=app_config.use_fido
-    )
-
-    async def start_scan_click(e):
+    async def start_scan_click(self, e):
         """Handles the 'Start Scan' button click."""
         # --- UI Update: Show scanning state ---
-        start_scan_button.visible = False
-        stop_scan_button.visible = True
-        scan_progress.visible = True
-        scan_progress.value = None  # Indeterminate progress
-        scan_status_text.value = "Starting scan..."
+        self.start_scan_button.visible = False
+        self.stop_scan_button.visible = True
+        self.scan_progress.visible = True
+        self.scan_progress.value = None  # Indeterminate progress
+        self.scan_status_text.value = "Starting scan..."
         
         # Disable controls
-        for checkbox in scan_targets_list.controls:
+        for checkbox in self.scan_targets_list.controls:
             if isinstance(checkbox, ft.Checkbox):
                 checkbox.disabled = True
-        scan_option_text.disabled = True
-        scan_option_phash.disabled = True
-        scan_option_fido.disabled = True
-        page.update()
+        self.scan_option_text.disabled = True
+        self.scan_option_phash.disabled = True
+        self.scan_option_fido.disabled = True
+        self.page.update()
 
         # --- Backend Logic: Run indexer in a thread ---
         def scan_job():
             """The actual scanning function to run in a thread."""
             
             # This callback will be called from the indexer thread.
-            # We use page.run_threadsafe to update the UI from the main thread.
+            # We use page.run_task to update the UI from the main thread.
             def progress_callback(value, total, description):
                 async def update_ui():
-                    scan_status_text.value = description
+                    self.scan_status_text.value = description
                     if total is not None and total > 1:
-                        scan_progress.value = value / total
+                        self.scan_progress.value = value / total
                     else:
-                        scan_progress.value = None # Indeterminate
-                    page.update()
-                page.run_task(update_ui)
+                        self.scan_progress.value = None # Indeterminate
+                    self.page.update()
+                self.page.run_task(update_ui)
 
             # Get selected paths from the GUI
             selected_paths = [
-                Path(cb.label) for cb in scan_targets_list.controls if isinstance(cb, ft.Checkbox) and cb.value
+                Path(cb.label) for cb in self.scan_targets_list.controls if isinstance(cb, ft.Checkbox) and cb.value
             ]
             
-            idx = indexer.Indexer(root_paths=tuple(selected_paths), workers=app_config.workers, memory_limit_gb=app_config.memory_limit_gb, exclude_paths=(), progress_callback=progress_callback)
+            idx = indexer.Indexer(root_paths=tuple(selected_paths), workers=self.app_config.workers, memory_limit_gb=self.app_config.memory_limit_gb, exclude_paths=(), progress_callback=progress_callback)
             idx.run()
             # Reset UI after scan and refresh history
             async def finish_scan():
-                await stop_scan_click(None, "Scan finished.")
-                await refresh_scan_history()
-            page.run_task(finish_scan)
+                await self.stop_scan_click(None, "Scan finished.")
+                await self.refresh_scan_history()
+            self.page.run_task(finish_scan)
 
         threading.Thread(target=scan_job, daemon=True).start()
-        page.update()
+        self.page.update()
 
-    async def stop_scan_click(e, message: str | None = None):
+    async def stop_scan_click(self, e, message: str | None = None):
         # This is where we would signal the scan thread to stop.
-        start_scan_button.visible = True
-        stop_scan_button.visible = False
-        scan_progress.visible = False
-        scan_status_text.value = message or "Scan stopped by user."
+        self.start_scan_button.visible = True
+        self.stop_scan_button.visible = False
+        self.scan_progress.visible = False
+        self.scan_status_text.value = message or "Scan stopped by user."
         # Re-enable controls
-        for checkbox in scan_targets_list.controls: # type: ignore
+        for checkbox in self.scan_targets_list.controls: # type: ignore
             if isinstance(checkbox, ft.Checkbox):
                 checkbox.disabled = False
-        scan_option_text.disabled = False
-        scan_option_phash.disabled = False
-        scan_option_fido.disabled = False
-        page.update()
+        self.scan_option_text.disabled = False
+        self.scan_option_phash.disabled = False
+        self.scan_option_fido.disabled = False
+        self.page.update()
 
-    start_scan_button = ft.ElevatedButton(
-        "Start Scan",
-        icon=ft.Icons.PLAY_ARROW_ROUNDED,
-        on_click=start_scan_click,
-        disabled=not app_config.scan_dirs
-    )
-    stop_scan_button = ft.ElevatedButton("Stop Scan", icon=ft.Icons.STOP_ROUNDED, on_click=stop_scan_click, visible=False)
-    scan_progress = ft.ProgressBar(width=400, visible=False)
-    scan_status_text = ft.Text("Idle.", italic=True)
-
-    new_scan_view = ft.Column(
-        controls=[
-            ft.Text("Select directories to scan:"), scan_targets_list,
-            ft.Text("Scan Options:"), ft.Row(controls=[scan_option_text, scan_option_phash, scan_option_fido]),
-            ft.Row([start_scan_button, stop_scan_button]), scan_progress, scan_status_text],
-        spacing=15,
-    )
-
-    # --- Scan History View ---
-    scan_history_list = ft.ListView(expand=True, spacing=10)
-
-    async def refresh_scan_history(e=None):
-        scan_history_list.controls.clear()
+    async def refresh_scan_history(self, e=None):
+        self.scan_history_list.controls.clear()
         with database.get_session() as db:
             logs = db.query(models.ScanLog).order_by(models.ScanLog.start_time.desc()).limit(50).all()
             if not logs:
-                scan_history_list.controls.append(ft.Text("No scan history found."))
+                self.scan_history_list.controls.append(ft.Text("No scan history found."))
             else:
                 for log in logs:
                     status_color = {
@@ -146,36 +101,28 @@ async def main(page: ft.Page):
                     end_time_str = log.end_time.strftime('%Y-%m-%d %H:%M:%S') if log.end_time else "In Progress"
                     duration = (log.end_time - log.start_time) if log.end_time else "N/A"
 
-                    scan_history_list.controls.append(
+                    self.scan_history_list.controls.append(
                         ft.ListTile(
                             leading=ft.Icon(ft.Icons.HISTORY, color=status_color),
                             title=ft.Text(f"Scan on {log.start_time.strftime('%Y-%m-%d %H:%M:%S')}"),
                             subtitle=ft.Text(f"Status: {log.status} | Files: {log.files_scanned} | Duration: {duration}"),
                         )
                     )
-        scan_history_list.update()
-    
-    scan_history_view = ft.Column(
-        controls=[ft.Row([ft.Text("Recent Scans"), ft.IconButton(icon=ft.Icons.REFRESH, on_click=refresh_scan_history, tooltip="Refresh History")]), scan_history_list], expand=True
-    )
+        self.scan_history_list.update()
 
-    # --- Refine View ---
-    refine_status_text = ft.Text("Idle.", italic=True)
-    refine_progress = ft.ProgressBar(width=400, visible=False)
-
-    async def run_refine_job(e, refine_type: str):
+    async def run_refine_job(self, e, refine_type: str):
         """Generic handler to run a refinement job in the background."""
         # --- UI Update: Show processing state ---
-        for btn in refine_buttons:
+        for btn in self.refine_buttons:
             btn.disabled = True
-        refine_progress.visible = True
-        refine_progress.value = None  # Indeterminate
-        refine_status_text.value = f"Starting {refine_type} refinement..."
-        page.update()
+        self.refine_progress.visible = True
+        self.refine_progress.value = None  # Indeterminate
+        self.refine_status_text.value = f"Starting {refine_type} refinement..."
+        self.page.update()
 
         def refine_thread_job():
             """The actual refinement function to run in a thread."""
-            idx = indexer.Indexer(root_paths=(), workers=app_config.workers, memory_limit_gb=app_config.memory_limit_gb, exclude_paths=())
+            idx = indexer.Indexer(root_paths=(), workers=self.app_config.workers, memory_limit_gb=self.app_config.memory_limit_gb, exclude_paths=())
             
             if refine_type == "fido":
                 idx.refine_unknown_files()
@@ -185,60 +132,306 @@ async def main(page: ft.Page):
 
             # --- UI Update: Reset to idle state ---
             async def finish_refine():
-                for btn in refine_buttons:
+                for btn in self.refine_buttons:
                     btn.disabled = False
-                refine_progress.visible = False
-                refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
-                page.update()
+                self.refine_progress.visible = False
+                self.refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
+                self.page.update()
             
-            page.run_task(finish_refine)
+            self.page.run_task(finish_refine)
 
         threading.Thread(target=refine_thread_job, daemon=True).start()
 
-    # Synchronous wrappers to call the async refine job from the on_click event
-    def refine_fido_click(e):
-        page.run_task(run_refine_job, e, "fido")
+    async def show_report_results(self, report_name: str):
+        """Placeholder function to display report results."""
+        self.report_content_area.content = ft.Column([
+            ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=self.show_report_list, tooltip="Back to reports list"),
+            ft.Text(f"Results for: {report_name}", style=ft.TextThemeStyle.HEADLINE_SMALL),
+            ft.Text("Report results will be displayed here."),
+        ])
+        self.page.update()
 
-    def refine_text_click(e):
-        page.run_task(run_refine_job, e, "text")
+    async def show_report_list(self, e=None):
+        self.report_content_area.content = self.reports_list_view
+        self.page.update()
 
-    refine_buttons = [
-        ft.ElevatedButton(
-            "Refine Unknown Files (Fido)", on_click=refine_fido_click,
-            tooltip="Rescan files with generic types like 'application/octet-stream' using Fido for better accuracy."
-        ),
-        ft.ElevatedButton(
-            "Refine All Text Content", on_click=refine_text_click,
-            tooltip="Extract text, PII, and embeddings for text-based files that were skipped in a fast initial scan."
-        ),
-    ]
+    async def remove_scan_dir(self, dir_to_remove: str):
+        self.app_config.scan_dirs.remove(dir_to_remove)
+        await self.update_list_views()
 
-    refine_data_view = ft.Column(
-        controls=[
-            ft.Text("Run deep analysis on files already in the database. This is useful after a fast initial scan."),
-            ft.Row(controls=refine_buttons),
-            refine_progress,
-            refine_status_text,
-        ],
-        spacing=15,
-    )
+    async def remove_exclude_dir(self, dir_to_remove: str):
+        self.app_config.exclude_dirs.remove(dir_to_remove)
+        await self.update_list_views()
 
-    view_scan = ft.Column(
-        controls=[
-            ft.Text("Scan Management", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
-            ft.Tabs(
-                selected_index=0,
-                tabs=[
-                    ft.Tab(text="New Scan", content=new_scan_view),
-                    ft.Tab(text="Scan History", content=scan_history_view),
-                    ft.Tab(text="Refine Data", content=refine_data_view),
-                ],
-            ),
-        ],
-        spacing=15,
-    )
+    async def update_list_views(self):
+        self.scan_dirs_list.controls.clear()
+        for d in sorted(self.app_config.scan_dirs):
+            self.scan_dirs_list.controls.append(
+                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(self.remove_scan_dir(dir)), tooltip="Remove")])
+            )
+        
+        self.exclude_dirs_list.controls.clear()
+        for d in sorted(self.app_config.exclude_dirs):
+            self.exclude_dirs_list.controls.append(
+                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(self.remove_exclude_dir(dir)), tooltip="Remove")])
+            )
+        self.page.update()
 
-    search_explanation = """
+    async def on_directory_picked(self, e: ft.FilePickerResultEvent):
+        if e.path:
+            if e.path not in self.app_config.scan_dirs:
+                self.app_config.scan_dirs.append(e.path)
+                # Also update the scan targets list on the main scan page
+                self.scan_targets_list.controls.append(ft.Checkbox(label=e.path, value=True))
+                self.start_scan_button.disabled = False
+                await self.update_list_views()
+
+    async def add_excluded_dir(self, e):
+        dir_to_exclude = self.new_exclude_dir_field.value
+        if dir_to_exclude and dir_to_exclude not in self.app_config.exclude_dirs:
+            self.app_config.exclude_dirs.append(dir_to_exclude)
+            self.new_exclude_dir_field.value = ""
+            await self.update_list_views()
+
+    async def save_settings_click(self, e):
+        """Saves the current settings from the UI to the wanderer.toml file."""
+        # Update the app_config object from the UI fields
+        try:
+            self.app_config.workers = int(self.workers_field.value)
+            self.app_config.db_batch_size = int(self.db_batch_size_field.value)
+            self.app_config.memory_limit_gb = float(self.memory_limit_field.value) if self.memory_limit_field.value else None
+        except (ValueError, TypeError):
+            # Handle potential conversion errors gracefully
+            # In a real app, you'd show a dialog here.
+            print("Invalid numeric value in settings.")
+            return
+
+        self.app_config.use_fido = self.use_fido_switch.value
+        self.app_config.extract_text_on_scan = self.extract_text_switch.value
+        self.app_config.compute_perceptual_hash = self.phash_switch.value
+        self.app_config.pii_languages = [lang.strip() for lang in self.pii_languages_field.value.split(',') if lang.strip()]
+        self.app_config.archive_exclude_extensions = [ext.strip() for ext in self.archive_excludes_field.value.split(',') if ext.strip()]
+        self.app_config.embedding_model_path = self.embedding_model_path_field.value or None
+
+        # The scan_dirs and exclude_dirs are already updated in real-time
+
+        if self.config_path:
+            try:
+                # Read the existing toml file to preserve structure and comments
+                # Add a snackbar for user feedback
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Settings saved successfully!"),
+                    action="OK",
+                )
+                self.page.snack_bar.open = True
+                with open(self.config_path, "rb") as f:
+                    full_toml = tomllib.load(f)
+
+                # Ensure the [tool.wanderer] section exists
+                if "tool" not in full_toml:
+                    full_toml["tool"] = {}
+                if "wanderer" not in full_toml["tool"]:
+                    full_toml["tool"]["wanderer"] = {}
+
+                # Update the values
+                full_toml["tool"]["wanderer"] = config.config_to_dict(self.app_config)
+                config.save_config_to_path(full_toml, self.config_path)
+            except Exception as ex:
+                print(f"Error saving config: {ex}")
+        self.page.update()
+
+    async def run_asset_download(self, e, asset_type: str):
+        """Handles the download process for a given asset in a background thread."""
+        e.control.disabled = True
+        e.control.text = "Downloading..."
+        progress_ring = ft.ProgressRing(width=16, height=16, stroke_width=2)
+        e.control.icon = progress_ring
+        self.page.update()
+
+        def download_job():
+            """The actual download function to run in a thread."""
+            script_dir = Path(__file__).parent
+            models_dir = script_dir / "models"
+            if asset_type == "embedding":
+                download_assets.download_sentence_transformer('all-MiniLM-L6-v2', models_dir / 'all-MiniLM-L6-v2')
+            elif asset_type == "pii":
+                for lang in self.app_config.pii_languages:
+                    model_name = config.get_spacy_model_name(lang)
+                    download_assets.download_spacy_model(model_name, lang)
+            elif asset_type == "fido":
+                download_assets.cache_fido_signatures(models_dir / 'fido_cache')
+            
+            # After download, trigger a UI update from the main thread
+            self.page.run_task(self.update_asset_status)
+
+        # Run the download in a separate thread to not block the UI
+        thread = threading.Thread(target=download_job, daemon=True) # type: ignore
+        thread.start()
+
+    async def update_asset_status(self):
+        """Checks for offline assets and updates the UI accordingly."""
+        self.asset_status_progress.visible = True
+        for btn in [self.download_embedding_button, self.download_pii_button, self.download_fido_button]:
+            btn.disabled = True
+        self.page.update()
+
+        script_dir = Path(__file__).parent
+        models_dir = script_dir / "models"
+
+        # 1. Check Embedding Model
+        model_path = script_dir / (self.app_config.embedding_model_path or "models/all-MiniLM-L6-v2")
+        if model_path.is_dir():
+            self.embedding_model_status.value = "Available"
+            self.embedding_model_status.color = ft.Colors.GREEN
+            self.download_embedding_button.disabled = True
+            self.download_embedding_button.text = "Downloaded"
+            self.download_embedding_button.icon = ft.icons.CHECK
+        else:
+            self.embedding_model_status.value = "Not Found"
+            self.embedding_model_status.color = ft.Colors.ORANGE
+            self.download_embedding_button.disabled = False
+            self.download_embedding_button.text = "Download"
+            self.download_embedding_button.icon = ft.icons.DOWNLOAD
+
+        # 2. Check PII (spaCy) Models
+        all_pii_models_found = True
+        for lang in self.app_config.pii_languages:
+            model_name = config.get_spacy_model_name(lang)
+            if not spacy.util.is_package(model_name):
+                all_pii_models_found = False
+                break
+        if all_pii_models_found:
+            self.pii_model_status.value = "Available"
+            self.pii_model_status.color = ft.Colors.GREEN
+            self.download_pii_button.disabled = True
+            self.download_pii_button.text = "Downloaded"
+            self.download_pii_button.icon = ft.icons.CHECK
+        else:
+            self.pii_model_status.value = "Missing"
+            self.pii_model_status.color = ft.Colors.ORANGE
+            self.download_pii_button.disabled = False
+            self.download_pii_button.text = "Download"
+            self.download_pii_button.icon = ft.icons.DOWNLOAD
+
+        # 3. Check Fido Signatures
+        fido_sig_path = models_dir / "fido_cache" / "DROID_SignatureFile.xml"
+        if fido_sig_path.is_file():
+            self.fido_status.value = "Available"
+            self.fido_status.color = ft.Colors.GREEN
+            self.download_fido_button.disabled = True
+            self.download_fido_button.text = "Downloaded"
+            self.download_fido_button.icon = ft.icons.CHECK
+        else:
+            self.fido_status.value = "Not Found"
+            self.fido_status.color = ft.Colors.ORANGE
+            self.download_fido_button.disabled = self.app_config.use_fido is False
+            self.download_fido_button.text = "Download"
+            self.download_fido_button.icon = ft.icons.DOWNLOAD
+
+        self.asset_status_progress.visible = False
+        # The buttons will be re-enabled by the logic above if a download is needed.
+        self.page.update()
+
+    async def navigate(self, e):
+        """Handles navigation rail selection changes."""
+        # Clear the main content area
+        if e.control.selected_index == 0:
+            self.main_content.content = self.view_scan
+        elif e.control.selected_index == 1:
+            self.main_content.content = self.view_search
+        elif e.control.selected_index == 2:
+            self.main_content.content = self.view_reports
+        elif e.control.selected_index == 3:
+            self.main_content.content = self.view_settings
+        elif e.control.selected_index == 4:
+            self.main_content.content = self.view_help
+        elif e.control.selected_index == 5:
+            self.main_content.content = self.view_about
+        self.page.update()
+
+    async def window_event(self, e):
+        if e.data == "close":
+            self.page.window_destroy()
+
+    def on_load_sync(self, e=None):
+        """Synchronous handler for page load that runs async tasks in a thread."""
+        async def startup_tasks():
+            await self.update_asset_status()
+            await self.refresh_scan_history()
+        
+        threading.Thread(target=lambda: asyncio.run(startup_tasks()), daemon=True).start()
+
+    async def build(self):
+        # --- Scan View ---
+        self.scan_targets_list = ft.ListView(expand=False, spacing=5, height=200)
+        if self.app_config.scan_dirs:
+            for d in self.app_config.scan_dirs:
+                self.scan_targets_list.controls.append(ft.Checkbox(label=d, value=True))
+        else:
+            self.scan_targets_list.controls.append(ft.Text("No scan directories configured. Please add some in Settings."))
+
+        self.scan_option_text = ft.Checkbox(label="Extract Text & PII", value=self.app_config.extract_text_on_scan)
+        self.scan_option_phash = ft.Checkbox(label="Compute Perceptual Hashes", value=self.app_config.compute_perceptual_hash)
+        self.scan_option_fido = ft.Checkbox(label="Enable Fido", value=self.app_config.use_fido)
+
+        self.start_scan_button = ft.ElevatedButton("Start Scan", icon=ft.Icons.PLAY_ARROW_ROUNDED, on_click=self.start_scan_click, disabled=not self.app_config.scan_dirs)
+        self.stop_scan_button = ft.ElevatedButton("Stop Scan", icon=ft.Icons.STOP_ROUNDED, on_click=self.stop_scan_click, visible=False)
+        self.scan_progress = ft.ProgressBar(width=400, visible=False)
+        self.scan_status_text = ft.Text("Idle.", italic=True)
+
+        new_scan_view = ft.Column(
+            controls=[
+                ft.Text("Select directories to scan:"), self.scan_targets_list,
+                ft.Text("Scan Options:"), ft.Row(controls=[self.scan_option_text, self.scan_option_phash, self.scan_option_fido]),
+                ft.Row([self.start_scan_button, self.stop_scan_button]), self.scan_progress, self.scan_status_text],
+            spacing=15,
+        )
+
+        # --- Scan History View ---
+        self.scan_history_list = ft.ListView(expand=True, spacing=10)
+        scan_history_view = ft.Column(
+            controls=[ft.Row([ft.Text("Recent Scans"), ft.IconButton(icon=ft.Icons.REFRESH, on_click=self.refresh_scan_history, tooltip="Refresh History")]), self.scan_history_list], expand=True
+        )
+
+        # --- Refine View ---
+        self.refine_status_text = ft.Text("Idle.", italic=True)
+        self.refine_progress = ft.ProgressBar(width=400, visible=False)
+
+        def refine_fido_click(e): self.page.run_task(self.run_refine_job, e, "fido")
+        def refine_text_click(e): self.page.run_task(self.run_refine_job, e, "text")
+
+        self.refine_buttons = [
+            ft.ElevatedButton("Refine Unknown Files (Fido)", on_click=refine_fido_click, tooltip="Rescan files with generic types like 'application/octet-stream' using Fido for better accuracy."),
+            ft.ElevatedButton("Refine All Text Content", on_click=refine_text_click, tooltip="Extract text, PII, and embeddings for text-based files that were skipped in a fast initial scan."),
+        ]
+
+        refine_data_view = ft.Column(
+            controls=[
+                ft.Text("Run deep analysis on files already in the database. This is useful after a fast initial scan."),
+                ft.Row(controls=self.refine_buttons),
+                self.refine_progress,
+                self.refine_status_text,
+            ],
+            spacing=15,
+        )
+
+        self.view_scan = ft.Column(
+            controls=[
+                ft.Text("Scan Management", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
+                ft.Tabs(
+                    selected_index=0,
+                    tabs=[
+                        ft.Tab(text="New Scan", content=new_scan_view),
+                        ft.Tab(text="Scan History", content=scan_history_view),
+                        ft.Tab(text="Refine Data", content=refine_data_view),
+                    ],
+                ),
+            ],
+            spacing=15,
+        )
+
+        # --- Search View ---
+        search_explanation = """
 This isn't your typical keyword search! It finds files based on the *meaning* of your query. Think of it like asking a question.
 
 **For example, you could search for:**
@@ -250,8 +443,7 @@ The search will find documents and notes that are conceptually related to what y
 
 **Note**: This feature requires an AI model. It will be downloaded automatically on first use (requires internet), or you can download it from the **Settings > Offline Assets** page for offline use.
 """
-
-    view_search = ft.Column(
+        self.view_search = ft.Column(
         controls=[
             ft.Text("Semantic Search", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
             ft.Markdown(search_explanation),
@@ -261,8 +453,8 @@ The search will find documents and notes that are conceptually related to what y
         spacing=15,
     )
 
-    # --- Reports View ---
-    reports_available = [
+        # --- Reports View ---
+        reports_available = [
         {"name": "Find Identical Files", "description": "Finds files with identical content (SHA-256 hash).", "icon": ft.Icons.CONTENT_COPY},
         {"name": "Find Similar Images", "description": "Finds visually similar images using perceptual hashing.", "icon": ft.Icons.IMAGE_SEARCH},
         {"name": "Find Similar Text", "description": "Finds documents with similar meaning using AI embeddings.", "icon": ft.Icons.TEXT_SNIPPET},
@@ -273,381 +465,177 @@ The search will find documents and notes that are conceptually related to what y
         {"name": "List Files with PII", "description": "Lists all files flagged for containing potential PII.", "icon": ft.Icons.PRIVACY_TIP_OUTLINED},
     ]
 
-    async def show_report_results(report_name: str):
-        """Placeholder function to display report results."""
-        report_content_area.content = ft.Column([
-            ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_report_list, tooltip="Back to reports list"),
-            ft.Text(f"Results for: {report_name}", style=ft.TextThemeStyle.HEADLINE_SMALL),
-            ft.Text("Report results will be displayed here."),
-        ])
-        page.update()
-
-    reports_list_view = ft.ListView(expand=True, spacing=10)
-    for report in reports_available:
-        reports_list_view.controls.append(
+        self.reports_list_view = ft.ListView(expand=True, spacing=10)
+        for report in reports_available:
+            self.reports_list_view.controls.append(
             ft.ListTile(
                 leading=ft.Icon(report["icon"]),
                 title=ft.Text(report["name"]),
                 subtitle=ft.Text(report["description"]),
-                on_click=lambda e, r=report["name"]: asyncio.create_task(show_report_results(r)),
+                    on_click=lambda e, r=report["name"]: asyncio.create_task(self.show_report_results(r)),
             )
         )
 
-    report_content_area = ft.Container(content=reports_list_view, expand=True)
-    async def show_report_list(e=None):
-        report_content_area.content = reports_list_view
-        page.update()
+        self.report_content_area = ft.Container(content=self.reports_list_view, expand=True)
+        self.view_reports = ft.Column(
+            [ft.Text("Reports", style=ft.TextThemeStyle.HEADLINE_MEDIUM), self.report_content_area], expand=True
+        )
 
-    view_reports = ft.Column(
-        [ft.Text("Reports", style=ft.TextThemeStyle.HEADLINE_MEDIUM), report_content_area], expand=True
-    )
+        # --- Settings View ---
+        self.scan_dirs_list = ft.ListView(expand=True, spacing=5)
+        self.exclude_dirs_list = ft.ListView(expand=True, spacing=5)
 
-    # --- Directory Management for Settings (with improved removal logic) ---
-    scan_dirs_list = ft.ListView(expand=True, spacing=5)
-    exclude_dirs_list = ft.ListView(expand=True, spacing=5)
+        directory_picker = ft.FilePicker(on_result=self.on_directory_picked)
+        self.page.overlay.append(directory_picker)
 
-    async def remove_scan_dir(dir_to_remove: str):
-        app_config.scan_dirs.remove(dir_to_remove)
-        await update_list_views()
+        self.new_exclude_dir_field = ft.TextField(label="Add exclusion (e.g., 'node_modules', '*.log')", expand=True, on_submit=self.add_excluded_dir)
 
-    async def remove_exclude_dir(dir_to_remove: str):
-        app_config.exclude_dirs.remove(dir_to_remove)
-        await update_list_views()
-
-    async def update_list_views():
-        scan_dirs_list.controls.clear()
-        for d in sorted(app_config.scan_dirs):
-            scan_dirs_list.controls.append(
-                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(remove_scan_dir(dir)), tooltip="Remove")])
-            )
-        
-        exclude_dirs_list.controls.clear()
-        for d in sorted(app_config.exclude_dirs):
-            exclude_dirs_list.controls.append(
-                ft.Row([ft.Text(d, expand=True), ft.IconButton(ft.Icons.DELETE_OUTLINE, on_click=lambda e, dir=d: asyncio.create_task(remove_exclude_dir(dir)), tooltip="Remove")])
-            )
-        page.update()
-
-    async def on_directory_picked(e: ft.FilePickerResultEvent):
-        if e.path:
-            if e.path not in app_config.scan_dirs:
-                app_config.scan_dirs.append(e.path)
-                # Also update the scan targets list on the main scan page
-                scan_targets_list.controls.append(ft.Checkbox(label=e.path, value=True))
-                start_scan_button.disabled = False
-                await update_list_views()
-
-    async def add_excluded_dir(e):
-        dir_to_exclude = new_exclude_dir_field.value
-        if dir_to_exclude and dir_to_exclude not in app_config.exclude_dirs:
-            app_config.exclude_dirs.append(dir_to_exclude)
-            new_exclude_dir_field.value = ""
-            await update_list_views()
-
-    directory_picker = ft.FilePicker(on_result=on_directory_picked)
-    page.overlay.append(directory_picker)
-
-    new_exclude_dir_field = ft.TextField(
-        label="Add exclusion (e.g., 'node_modules', '*.log')",
-        expand=True,
-        on_submit=add_excluded_dir,
-    )
-
-    async def save_settings_click(e):
-        """Saves the current settings from the UI to the wanderer.toml file."""
-        # Update the app_config object from the UI fields
-        try:
-            app_config.workers = int(workers_field.value)
-            app_config.db_batch_size = int(db_batch_size_field.value)
-            app_config.memory_limit_gb = float(memory_limit_field.value) if memory_limit_field.value else None
-        except (ValueError, TypeError):
-            # Handle potential conversion errors gracefully
-            # In a real app, you'd show a dialog here.
-            print("Invalid numeric value in settings.")
-            return
-
-        app_config.use_fido = use_fido_switch.value
-        app_config.extract_text_on_scan = extract_text_switch.value
-        app_config.compute_perceptual_hash = phash_switch.value
-        app_config.pii_languages = [lang.strip() for lang in pii_languages_field.value.split(',') if lang.strip()]
-        app_config.archive_exclude_extensions = [ext.strip() for ext in archive_excludes_field.value.split(',') if ext.strip()]
-        app_config.embedding_model_path = embedding_model_path_field.value or None
-
-        # The scan_dirs and exclude_dirs are already updated in real-time
-
-        if config_path:
-            try:
-                # Read the existing toml file to preserve structure and comments
-                # Add a snackbar for user feedback
-                page.snack_bar = ft.SnackBar(
-                    content=ft.Text("Settings saved successfully!"),
-                    action="OK",
-                )
-                page.snack_bar.open = True
-                with open(config_path, "rb") as f:
-                    full_toml = tomllib.load(f)
-
-                # Ensure the [tool.wanderer] section exists
-                if "tool" not in full_toml:
-                    full_toml["tool"] = {}
-                if "wanderer" not in full_toml["tool"]:
-                    full_toml["tool"]["wanderer"] = {}
-
-                # Update the values
-                full_toml["tool"]["wanderer"] = config.config_to_dict(app_config)
-                config.save_config_to_path(full_toml, config_path)
-            except Exception as ex:
-                print(f"Error saving config: {ex}")
-        page.update()
-
-    # Populate initial lists
-    await update_list_views()
-
-    # --- Settings View ---
-    config_path_text = ft.Text(
-        f"Editing: {config_path}" if config_path else "No wanderer.toml found. Using default settings.",
-        italic=True
-    )
-    workers_field = ft.TextField(
-        label="Worker Processes",
-        value=str(app_config.workers),
-        width=150,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        text_align=ft.TextAlign.RIGHT,
-    )
-    memory_limit_field = ft.TextField(
-        label="RAM per Worker (GB)",
-        value=str(app_config.memory_limit_gb or ""),
-        width=180,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        hint_text="e.g., 4.0",
-        text_align=ft.TextAlign.RIGHT,
-    )
-    db_batch_size_field = ft.TextField(
-        label="DB Batch Size",
-        value=str(app_config.db_batch_size),
-        width=150,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        text_align=ft.TextAlign.RIGHT,
-    )
-    use_fido_switch = ft.Switch(label="Use Fido", value=app_config.use_fido, label_position=ft.LabelPosition.LEFT)
-    extract_text_switch = ft.Switch(
-        label="Extract Text/PII",
-        value=app_config.extract_text_on_scan,
-        label_position=ft.LabelPosition.LEFT
-    )
-    phash_switch = ft.Switch(
-        label="Compute Perceptual Hash",
-        value=app_config.compute_perceptual_hash,
-        label_position=ft.LabelPosition.LEFT,
-    )
-    pii_languages_field = ft.TextField(
-        label="PII Languages (comma-separated, e.g., en,es)",
-        value=",".join(app_config.pii_languages),
-        expand=True,
-    )
-    archive_excludes_field = ft.TextField(
-        label="Archive extensions to skip extracting (e.g., .epub,.cbz)",
-        value=",".join(app_config.archive_exclude_extensions),
-        expand=True,
-    )
-    text_fields_row = ft.Row(
-        controls=[pii_languages_field, archive_excludes_field],
-    )
+        config_path_text = ft.Text(
+            f"Editing: {self.config_path}" if self.config_path else "No wanderer.toml found. Using default settings.",
+            italic=True
+        )
+        self.workers_field = ft.TextField(
+            label="Worker Processes",
+                value=str(self.app_config.workers),
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
+        )
+        self.memory_limit_field = ft.TextField(
+            label="RAM per Worker (GB)",
+                value=str(self.app_config.memory_limit_gb or ""),
+            width=180,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            hint_text="e.g., 4.0",
+            text_align=ft.TextAlign.RIGHT,
+        )
+        self.db_batch_size_field = ft.TextField(
+            label="DB Batch Size",
+                value=str(self.app_config.db_batch_size),
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
+        )
+        self.use_fido_switch = ft.Switch(label="Use Fido", value=self.app_config.use_fido, label_position=ft.LabelPosition.LEFT)
+        self.extract_text_switch = ft.Switch(
+            label="Extract Text/PII",
+                value=self.app_config.extract_text_on_scan,
+            label_position=ft.LabelPosition.LEFT
+        )
+        self.phash_switch = ft.Switch(
+            label="Compute Perceptual Hash",
+                value=self.app_config.compute_perceptual_hash,
+            label_position=ft.LabelPosition.LEFT,
+        )
+        self.pii_languages_field = ft.TextField(
+            label="PII Languages (comma-separated, e.g., en,es)",
+                value=",".join(self.app_config.pii_languages),
+            expand=True,
+        )
+        self.archive_excludes_field = ft.TextField(
+            label="Archive extensions to skip extracting (e.g., .epub,.cbz)",
+                value=",".join(self.app_config.archive_exclude_extensions),
+            expand=True,
+        )
+        text_fields_row = ft.Row(
+                controls=[self.pii_languages_field, self.archive_excludes_field],
+        )
     
-    # --- Asset Management Controls & Logic ---
-    embedding_model_status = ft.Text("Checking...", italic=True)
-    pii_model_status = ft.Text("Checking...", italic=True)
-    fido_status = ft.Text("Checking...", italic=True)
-    asset_status_progress = ft.ProgressBar(visible=False)
+        # --- Asset Management Controls & Logic ---
+        self.embedding_model_status = ft.Text("Checking...", italic=True)
+        self.pii_model_status = ft.Text("Checking...", italic=True)
+        self.fido_status = ft.Text("Checking...", italic=True)
+        self.asset_status_progress = ft.ProgressBar(visible=False)
 
-    async def run_asset_download(e, asset_type: str):
-        """Handles the download process for a given asset in a background thread."""
-        e.control.disabled = True
-        e.control.text = "Downloading..."
-        progress_ring = ft.ProgressRing(width=16, height=16, stroke_width=2)
-        e.control.icon = progress_ring
-        page.update()
+        self.download_embedding_button = ft.ElevatedButton("Download", disabled=True, on_click=lambda e: self.run_asset_download(e, "embedding"))
+        self.download_pii_button = ft.ElevatedButton("Download", disabled=True, on_click=lambda e: self.run_asset_download(e, "pii"))
+        self.download_fido_button = ft.ElevatedButton("Download", disabled=True, on_click=lambda e: self.run_asset_download(e, "fido"))
 
-        def download_job():
-            """The actual download function to run in a thread."""
-            script_dir = Path(__file__).parent
-            models_dir = script_dir / "models"
-            if asset_type == "embedding":
-                download_assets.download_sentence_transformer('all-MiniLM-L6-v2', models_dir / 'all-MiniLM-L6-v2')
-            elif asset_type == "pii":
-                for lang in app_config.pii_languages:
-                    model_name = config.get_spacy_model_name(lang)
-                    download_assets.download_spacy_model(model_name, lang)
-            elif asset_type == "fido":
-                download_assets.cache_fido_signatures(models_dir / 'fido_cache')
-            
-            # After download, trigger a UI update from the main thread
-            page.run_task(update_asset_status)
-
-        # Run the download in a separate thread to not block the UI
-        thread = threading.Thread(target=download_job, daemon=True) # type: ignore
-        thread.start()
-
-    download_embedding_button = ft.ElevatedButton(
-        "Download", disabled=True, on_click=lambda e: run_asset_download(e, "embedding")
-    )
-    download_pii_button = ft.ElevatedButton(
-        "Download", disabled=True, on_click=lambda e: run_asset_download(e, "pii")
-    )
-    download_fido_button = ft.ElevatedButton(
-        "Download", disabled=True, on_click=lambda e: run_asset_download(e, "fido")
-    )
-
-    async def update_asset_status():
-        """Checks for offline assets and updates the UI accordingly."""
-        asset_status_progress.visible = True
-        for btn in [download_embedding_button, download_pii_button, download_fido_button]:
-            btn.disabled = True
-        page.update()
-
-        script_dir = Path(__file__).parent
-        models_dir = script_dir / "models"
-
-        # 1. Check Embedding Model
-        model_path = script_dir / (app_config.embedding_model_path or "models/all-MiniLM-L6-v2")
-        if model_path.is_dir():
-            embedding_model_status.value = "Available"
-            embedding_model_status.color = ft.colors.GREEN
-            download_embedding_button.disabled = True
-            download_embedding_button.text = "Downloaded"
-            download_embedding_button.icon = ft.icons.CHECK
-        else:
-            embedding_model_status.value = "Not Found"
-            embedding_model_status.color = ft.colors.ORANGE
-            download_embedding_button.disabled = False
-            download_embedding_button.text = "Download"
-            download_embedding_button.icon = ft.icons.DOWNLOAD
-
-        # 2. Check PII (spaCy) Models
-        all_pii_models_found = True
-        for lang in app_config.pii_languages:
-            model_name = config.get_spacy_model_name(lang)
-            if not spacy.util.is_package(model_name):
-                all_pii_models_found = False
-                break
-        if all_pii_models_found:
-            pii_model_status.value = "Available"
-            pii_model_status.color = ft.colors.GREEN
-            download_pii_button.disabled = True
-            download_pii_button.text = "Downloaded"
-            download_pii_button.icon = ft.icons.CHECK
-        else:
-            pii_model_status.value = "Missing"
-            pii_model_status.color = ft.colors.ORANGE
-            download_pii_button.disabled = False
-            download_pii_button.text = "Download"
-            download_pii_button.icon = ft.icons.DOWNLOAD
-
-        # 3. Check Fido Signatures
-        fido_sig_path = models_dir / "fido_cache" / "DROID_SignatureFile.xml"
-        if fido_sig_path.is_file():
-            fido_status.value = "Available"
-            fido_status.color = ft.colors.GREEN
-            download_fido_button.disabled = True
-            download_fido_button.text = "Downloaded"
-            download_fido_button.icon = ft.icons.CHECK
-        else:
-            fido_status.value = "Not Found"
-            fido_status.color = ft.colors.ORANGE
-            download_fido_button.disabled = app_config.use_fido is False
-            download_fido_button.text = "Download"
-            download_fido_button.icon = ft.icons.DOWNLOAD
-
-        asset_status_progress.visible = False
-        # The buttons will be re-enabled by the logic above if a download is needed.
-        page.update()
-
-    embedding_model_path_field = ft.TextField(
-        label="Custom Embedding Model Path",
-        value=app_config.embedding_model_path,
-        hint_text="e.g., models/my-custom-model",
-        expand=True,
-    )
-
-    asset_management_view = ft.Column([
-        asset_status_progress,
-        ft.Row([
-            ft.Text("Default Semantic Search Model", expand=True),
-            embedding_model_status,
-            download_embedding_button
-        ]),
-        ft.Row([
-            ft.Text(f"PII Models ({','.join(app_config.pii_languages)})", expand=True),
-            pii_model_status,
-            download_pii_button
-        ]),
-        ft.Row([ft.Text("Fido/PRONOM Signatures", expand=True), fido_status, download_fido_button]),
-        embedding_model_path_field,
-        ft.Text("Note: Downloads can be large and take several minutes.", style=ft.TextThemeStyle.BODY_SMALL)
-    ])
-
-    view_settings = ft.Column(
-        scroll=ft.ScrollMode.ADAPTIVE,
-        controls=[ft.Container(
-            padding=ft.padding.only(right=15),
-            content=ft.Column(controls=[
-                ft.Text("Settings", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
-                config_path_text,
-                ft.Divider(),
-                ft.Text("Performance", style=ft.TextThemeStyle.TITLE_MEDIUM),
-                ft.Row(controls=[workers_field, memory_limit_field, db_batch_size_field]),
-                ft.Text(
-                    "Note: RAM limit is only supported on Linux and macOS.",
-                    style=ft.TextThemeStyle.BODY_SMALL,
-                ),
-                ft.Divider(),
-                ft.Text("File Processing", style=ft.TextThemeStyle.TITLE_MEDIUM),
-                ft.Row(controls=[use_fido_switch, extract_text_switch, phash_switch], spacing=20),
-                ft.Container(content=text_fields_row, margin=ft.margin.only(top=10)),
-                ft.Divider(),
-                ft.Text("Scan Directories", style=ft.TextThemeStyle.TITLE_MEDIUM),
-                ft.Container(
-                    content=scan_dirs_list,
-                    border=ft.border.all(1, ft.Colors.OUTLINE),
-                    border_radius=ft.border_radius.all(5),
-                    padding=10,
-                    height=150,
-                ),
-                ft.Row([ft.ElevatedButton("Add Directory", icon=ft.Icons.FOLDER_OPEN, on_click=lambda _: directory_picker.get_directory_path())]),
-                ft.Divider(),
-                ft.Text("Excluded Directories & Patterns", style=ft.TextThemeStyle.TITLE_MEDIUM),
-                ft.Text(
-                    "Use folder names (e.g., 'node_modules') or glob patterns (e.g., '*.tmp') to exclude them everywhere. Full paths are not typically needed.",
-                    style=ft.TextThemeStyle.BODY_SMALL,
-                ),
-                 ft.Container(
-                    content=exclude_dirs_list,
-                    border=ft.border.all(1, ft.Colors.OUTLINE),
-                    border_radius=ft.border_radius.all(5),
-                    padding=10,
-                    height=150,
-                ),
-                ft.Row([new_exclude_dir_field, ft.IconButton(icon=ft.Icons.ADD, on_click=add_excluded_dir, tooltip="Add")]),
-                ft.Divider(),
-                ft.Text("Offline Assets", style=ft.TextThemeStyle.TITLE_MEDIUM),
-                asset_management_view,
-                ft.Divider(),
-                ft.ElevatedButton(
-                    "Save Settings", icon=ft.Icons.SAVE, on_click=save_settings_click,
-                    disabled=not config_path, tooltip="Save settings to wanderer.toml"
-                ),
-            ])
+        self.embedding_model_path_field = ft.TextField(
+            label="Custom Embedding Model Path",
+                value=self.app_config.embedding_model_path,
+            hint_text="e.g., models/my-custom-model",
+            expand=True,
         )
-        ]
-    )
-    view_about = ft.Column(
+
+        asset_management_view = ft.Column([
+            self.asset_status_progress,
+            ft.Row([
+                ft.Text("Default Semantic Search Model", expand=True),
+                    self.embedding_model_status,
+                    self.download_embedding_button
+            ]),
+            ft.Row([
+                    ft.Text(f"PII Models ({','.join(self.app_config.pii_languages)})", expand=True),
+                    self.pii_model_status,
+                    self.download_pii_button
+            ]),
+            ft.Row([ft.Text("Fido/PRONOM Signatures", expand=True), self.fido_status, self.download_fido_button]),
+            self.embedding_model_path_field,
+            ft.Text("Note: Downloads can be large and take several minutes.", style=ft.TextThemeStyle.BODY_SMALL)
+        ])
+
+        self.view_settings = ft.Column(
+            scroll=ft.ScrollMode.ADAPTIVE,
+            controls=[ft.Container(
+                padding=ft.padding.only(right=15),
+                content=ft.Column(controls=[
+                    ft.Text("Settings", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
+                    config_path_text,
+                    ft.Divider(),
+                    ft.Text("Performance", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                        ft.Row(controls=[self.workers_field, self.memory_limit_field, self.db_batch_size_field]),
+                    ft.Text(
+                        "Note: RAM limit is only supported on Linux and macOS.",
+                        style=ft.TextThemeStyle.BODY_SMALL,
+                    ),
+                    ft.Divider(),
+                    ft.Text("File Processing", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                        ft.Row(controls=[self.use_fido_switch, self.extract_text_switch, self.phash_switch], spacing=20),
+                    ft.Container(content=text_fields_row, margin=ft.margin.only(top=10)),
+                    ft.Divider(),
+                    ft.Text("Scan Directories", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                    ft.Container(
+                        content=self.scan_dirs_list,
+                        border=ft.border.all(1, ft.Colors.OUTLINE),
+                        border_radius=ft.border_radius.all(5),
+                        padding=10,
+                        height=150,
+                    ),
+                    ft.Row([ft.ElevatedButton("Add Directory", icon=ft.Icons.FOLDER_OPEN, on_click=lambda _: self.page.overlay[0].get_directory_path())]),
+                    ft.Divider(),
+                    ft.Text("Excluded Directories & Patterns", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                    ft.Text(
+                        "Use folder names (e.g., 'node_modules') or glob patterns (e.g., '*.tmp') to exclude them everywhere. Full paths are not typically needed.",
+                        style=ft.TextThemeStyle.BODY_SMALL,
+                    ),
+                    ft.Container(
+                        content=self.exclude_dirs_list,
+                        border=ft.border.all(1, ft.Colors.OUTLINE),
+                        border_radius=ft.border_radius.all(5),
+                        padding=10,
+                        height=150,
+                    ),
+                    ft.Row([self.new_exclude_dir_field, ft.IconButton(icon=ft.Icons.ADD, on_click=self.add_excluded_dir, tooltip="Add")]),
+                    ft.Divider(),
+                    ft.Text("Offline Assets", style=ft.TextThemeStyle.TITLE_MEDIUM),
+                    asset_management_view,
+                    ft.Divider(),
+                    ft.ElevatedButton(
+                        "Save Settings", icon=ft.Icons.SAVE, on_click=self.save_settings_click,
+                        disabled=not self.config_path, tooltip="Save settings to wanderer.toml"
+                    ),
+                ])
+            )
+            ]
+        )
+        self.view_about = ft.Column(
         [ft.Text("About Wanderer", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
          ft.Text("Version, author, and other application information will go here.")]
     )
     
-    # --- Help View ---
-    help_content = """
+        # --- Help View ---
+        help_content = """
 # Wanderer Help
 
 This guide explains the main features of the Wanderer application.
@@ -705,7 +693,7 @@ For very large collections, it's more efficient to perform a fast initial scan a
     - To force a high-accuracy Fido scan on an `Downloads` folder:
       `poetry run python -m wanderer.main refine-fido-by-path /path/to/Downloads`
 """
-    view_help = ft.Column(
+        self.view_help = ft.Column(
         scroll=ft.ScrollMode.ADAPTIVE,
         controls=[
             ft.Container(
@@ -718,65 +706,38 @@ For very large collections, it's more efficient to perform a fast initial scan a
         ]
     )
 
-    # --- Main Content Area ---
-    # This control will display the currently selected view.
-    main_content = ft.Container(content=view_scan, expand=True, padding=20)
+        # --- Main Content Area ---
+        self.main_content = ft.Container(content=self.view_scan, expand=True, padding=20)
 
-    async def navigate(e):
-        """Handles navigation rail selection changes."""
-        # Clear the main content area
-        if e.control.selected_index == 0:
-            main_content.content = view_scan
-        elif e.control.selected_index == 1:
-            main_content.content = view_search
-        elif e.control.selected_index == 2:
-            main_content.content = view_reports
-        elif e.control.selected_index == 3:
-            main_content.content = view_settings
-        elif e.control.selected_index == 4:
-            main_content.content = view_help
-        elif e.control.selected_index == 5:
-            main_content.content = view_about
-        page.update()
-
-    navigation_rail = ft.NavigationRail(
+        navigation_rail = ft.NavigationRail(
         selected_index=0,
         label_type=ft.NavigationRailLabelType.ALL,
         min_width=100,
         min_extended_width=400,
         group_alignment=-0.9,
         destinations=[
-            ft.NavigationRailDestination(icon=ft.Icons.RADAR_OUTLINED, selected_icon=ft.Icons.RADAR, label="Scan"),
-            ft.NavigationRailDestination(icon=ft.Icons.SEARCH_OUTLINED, selected_icon=ft.Icons.SEARCH, label="Search"),
-            ft.NavigationRailDestination(icon=ft.Icons.INSERT_CHART_OUTLINED, selected_icon=ft.Icons.INSERT_CHART, label="Reports"),
-            ft.NavigationRailDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="Settings"),
-            ft.NavigationRailDestination(icon=ft.Icons.HELP_OUTLINE, selected_icon=ft.Icons.HELP, label="Help"),
-            ft.NavigationRailDestination(icon=ft.Icons.INFO_OUTLINE, selected_icon=ft.Icons.INFO, label="About"),
+                ft.NavigationRailDestination(icon=ft.Icons.RADAR_OUTLINED, selected_icon=ft.Icons.RADAR, label="Scan"),
+                ft.NavigationRailDestination(icon=ft.Icons.SEARCH_OUTLINED, selected_icon=ft.Icons.SEARCH, label="Search"),
+                ft.NavigationRailDestination(icon=ft.Icons.INSERT_CHART_OUTLINED, selected_icon=ft.Icons.INSERT_CHART, label="Reports"),
+                ft.NavigationRailDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="Settings"),
+                ft.NavigationRailDestination(icon=ft.Icons.HELP_OUTLINE, selected_icon=ft.Icons.HELP, label="Help"),
+                ft.NavigationRailDestination(icon=ft.Icons.INFO_OUTLINE, selected_icon=ft.Icons.INFO, label="About"),
         ],
-        on_change=navigate,
+            on_change=self.navigate,
     )
 
-    page.add(
-        ft.Row([navigation_rail, ft.VerticalDivider(width=1), main_content], expand=True)
-    )
+        self.page.add(
+            ft.Row([navigation_rail, ft.VerticalDivider(width=1), self.main_content], expand=True)
+        )
 
-    page.update()
+        self.page.on_window_event = self.window_event
+        self.page.on_load = self.on_load_sync
+        await self.update_list_views()
+        self.page.update()
 
-    # --- Graceful Shutdown Handler ---
-    # This handles the window closing event to prevent a common Flutter error on exit.
-    async def window_event(e):
-        if e.data == "close":
-            page.window_destroy()
-
-    page.on_window_event = window_event
-
-    # --- Initial UI Updates on Page Load ---
-    def on_load_sync(e=None):
-        """Synchronous handler for page load that runs async tasks in a thread."""
-        async def startup_tasks():
-            await update_asset_status()
-            await refresh_scan_history()
-        
-        threading.Thread(target=lambda: asyncio.run(startup_tasks()), daemon=True).start()
-
-    page.on_load = on_load_sync
+async def main(page: ft.Page):
+    """
+    The main entry point for the Flet application.
+    """
+    gui_app = WandererGUI(page)
+    await gui_app.build()
