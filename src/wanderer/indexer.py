@@ -439,12 +439,6 @@ class Indexer:
                     existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
                 click.echo(f"Loaded {len(existing_files_map)} records from the index.")
 
-                # First, get a total count of files for the progress bar
-                report_progress(0, 1, "Enumerating files...")
-                total_files_to_scan = sum(1 for _ in self._get_file_chunks(chunk_size=10000) for _ in _.pop())
-                pbar.reset(total=total_files_to_scan)
-                report_progress(0, total_files_to_scan, "Scanning files...")
-
                 chunk_iterator = self._get_file_chunks(chunk_size=10000)
                 for path_chunk in chunk_iterator:
                     report_progress(pbar.n, pbar.total, "Filtering files...")

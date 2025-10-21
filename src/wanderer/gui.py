@@ -70,12 +70,12 @@ async def main(page: ft.Page):
             def progress_callback(value, total, description):
                 async def update_ui():
                     scan_status_text.value = description
-                    if total > 1:
+                    if total is not None and total > 1:
                         scan_progress.value = value / total
                     else:
                         scan_progress.value = None # Indeterminate
                     page.update()
-                page.run_task(update_ui())
+                page.run_task(update_ui)
 
             # Get selected paths from the GUI
             selected_paths = [
@@ -88,7 +88,7 @@ async def main(page: ft.Page):
             async def finish_scan():
                 await stop_scan_click(None, "Scan finished.")
                 await refresh_scan_history()
-            page.run_task(finish_scan())
+            page.run_task(finish_scan)
 
         threading.Thread(target=scan_job, daemon=True).start()
         page.update()
@@ -138,10 +138,10 @@ async def main(page: ft.Page):
             else:
                 for log in logs:
                     status_color = {
-                        "completed": ft.colors.GREEN,
-                        "failed": ft.colors.RED,
-                        "started": ft.colors.ORANGE,
-                    }.get(log.status, ft.colors.GREY)
+                        "completed": ft.Colors.GREEN,
+                        "failed": ft.Colors.RED,
+                        "started": ft.Colors.ORANGE,
+                    }.get(log.status, ft.Colors.GREY)
                     
                     end_time_str = log.end_time.strftime('%Y-%m-%d %H:%M:%S') if log.end_time else "In Progress"
                     duration = (log.end_time - log.start_time) if log.end_time else "N/A"
@@ -153,7 +153,7 @@ async def main(page: ft.Page):
                             subtitle=ft.Text(f"Status: {log.status} | Files: {log.files_scanned} | Duration: {duration}"),
                         )
                     )
-        await scan_history_list.update()
+        scan_history_list.update()
     
     scan_history_view = ft.Column(
         controls=[ft.Row([ft.Text("Recent Scans"), ft.IconButton(icon=ft.Icons.REFRESH, on_click=refresh_scan_history, tooltip="Refresh History")]), scan_history_list], expand=True
@@ -191,17 +191,24 @@ async def main(page: ft.Page):
                 refine_status_text.value = f"{refine_type.capitalize()} refinement finished."
                 page.update()
             
-            page.run_task(finish_refine())
+            page.run_task(finish_refine)
 
         threading.Thread(target=refine_thread_job, daemon=True).start()
 
+    # Synchronous wrappers to call the async refine job from the on_click event
+    def refine_fido_click(e):
+        page.run_task(run_refine_job, e, "fido")
+
+    def refine_text_click(e):
+        page.run_task(run_refine_job, e, "text")
+
     refine_buttons = [
         ft.ElevatedButton(
-            "Refine Unknown Files (Fido)", on_click=lambda e: asyncio.create_task(run_refine_job(e, "fido")),
+            "Refine Unknown Files (Fido)", on_click=refine_fido_click,
             tooltip="Rescan files with generic types like 'application/octet-stream' using Fido for better accuracy."
         ),
         ft.ElevatedButton(
-            "Refine All Text Content", on_click=lambda e: asyncio.create_task(run_refine_job(e, "text")),
+            "Refine All Text Content", on_click=refine_text_click,
             tooltip="Extract text, PII, and embeddings for text-based files that were skipped in a fast initial scan."
         ),
     ]
@@ -476,7 +483,7 @@ The search will find documents and notes that are conceptually related to what y
                 download_assets.cache_fido_signatures(models_dir / 'fido_cache')
             
             # After download, trigger a UI update from the main thread
-            page.run_task(update_asset_status())
+            page.run_task(update_asset_status)
 
         # Run the download in a separate thread to not block the UI
         thread = threading.Thread(target=download_job, daemon=True) # type: ignore
