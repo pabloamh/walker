@@ -277,7 +277,7 @@ def gui():
     """Launches the Wanderer graphical user interface."""
     from . import gui
     import flet as ft
-    ft.app(target=gui.main)
+    ft.app_async(target=gui.main)
 
 if __name__ == "__main__":
     cli()

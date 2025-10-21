@@ -43,25 +43,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="PIL.TiffImagePlu
 def get_embedding_model() -> SentenceTransformer:
     """Loads the SentenceTransformer model."""
     app_config = config.load_config()
-    model_name_or_path = app_config.embedding_model_path or 'all-MiniLM-L6-v2'
-
-    # If a relative path is provided, make it relative to the script's directory
-    # to ensure it's found correctly regardless of where the app is run from.
-    if app_config.embedding_model_path and not os.path.isabs(app_config.embedding_model_path):
-        script_dir = Path(__file__).parent
-        model_name_or_path = str(script_dir / app_config.embedding_model_path)
+    
+    # The model path in config is relative to the script dir.
+    script_dir = Path(__file__).parent
+    model_name_or_path = str(script_dir / (app_config.embedding_model_path or "models/all-MiniLM-L6-v2"))
 
     return SentenceTransformer(model_name_or_path, device='cpu')
-
-def get_spacy_model_name(lang_code: str) -> str:
-    """Gets the default spaCy model name for a given language code."""
-    # This mapping can be expanded for more languages
-    model_map = {
-        "en": "en_core_web_lg",
-        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
-        "fr": "fr_core_news_lg",
-    }
-    return model_map.get(lang_code, f"{lang_code}_core_news_lg")
 
 @functools.lru_cache(maxsize=None)
 def get_pii_analyzer() -> AnalyzerEngine:
@@ -83,7 +70,7 @@ def get_pii_analyzer() -> AnalyzerEngine:
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [
-            {"lang_code": lang, "model_name": get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
+            {"lang_code": lang, "model_name": config.get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
             for lang in app_config.pii_languages
         ]
     }

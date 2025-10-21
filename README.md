@@ -26,7 +26,6 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 - **Scalable & Memory-Efficient**: Optimized to handle hundreds of thousands of files without running out of memory during reporting.
 - **Powerful CLI**: Easy-to-use command-line interface built with Click for indexing and reporting.
 - **Flexible Configuration**: Uses a `walker.toml` file for persistent settings and supports command-line overrides.
-- **Flexible Configuration**: Uses a `wanderer.toml` file for persistent settings and supports command-line overrides.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 ## Quick Start
 
@@ -193,7 +192,7 @@ poetry run python -m wanderer.main download-assets
 
 This script will perform the following actions:
 1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
-2.  **Download the `spaCy` language model** (`en_core_web_lg`) required for PII detection.
+2.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
 3.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
 4.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/wanderer/models/tldextract_cache`.
 5.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your `wanderer.toml`.
@@ -252,10 +251,10 @@ poetry run python -m wanderer.main index [ROOT_PATHS...] [OPTIONS]
 
 ### Refining Unknown Files
 
-After an initial scan, you can run this command to re-process any files that were identified with a generic MIME type (like `application/octet-stream`). It uses `fido` to attempt a more accurate identification. This requires `use_fido = true` in your `walker.toml`.
+After an initial scan, you can run this command to re-process any files that were identified with a generic MIME type (like `application/octet-stream`). It uses `fido` to attempt a more accurate identification. This requires `use_fido = true` in your `wanderer.toml`.
 
 ```bash
-poetry run python -m walker.main refine-unknowns
+poetry run python -m wanderer.main refine-unknowns
 ```
 
 This is useful for improving your data quality without slowing down the initial indexing process.

@@ -1,6 +1,7 @@
 # walker/indexer.py
 import logging
 import multiprocessing
+from datetime import datetime
 import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 import os
 import click
+import attrs
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
@@ -24,6 +26,7 @@ class Indexer:
         workers: int,
         memory_limit_gb: Optional[float],
         exclude_paths: Tuple[str, ...],
+        progress_callback: Optional[callable] = None,
     ):
         """
         Initializes the Indexer with CLI arguments and application configuration.
@@ -33,6 +36,7 @@ class Indexer:
             workers: The number of worker processes to use.
             memory_limit_gb: An optional soft memory limit for each worker in GB.
             exclude_paths: A tuple of paths or patterns to exclude from the scan.
+            progress_callback: An optional callable to report progress to a GUI.
         """
         self.app_config = config.load_config()
         self.cli_root_paths = root_paths
@@ -44,6 +48,7 @@ class Indexer:
         self.final_workers: int = 0
         self.final_memory_limit: Optional[float] = None
         self.final_exclude_list: set[str] = set()
+        self.progress_callback = progress_callback
 
     def _prepare_paths_and_exclusions(self):
         """
@@ -52,8 +57,8 @@ class Indexer:
         """
         # --- Determine which paths to scan ---
         combined_paths = list(self.cli_root_paths)
-        if self.app_config.scan_dirs:
-            click.echo("Adding 'scan_dirs' from walker.toml.")
+        if not combined_paths and self.app_config.scan_dirs:
+            click.echo("Using 'scan_dirs' from wanderer.toml.")
             for p_str in self.app_config.scan_dirs:
                 p = Path(p_str).expanduser()
                 if p not in combined_paths:
@@ -195,7 +200,7 @@ class Indexer:
         self._prepare_settings()
     
         if not self.app_config.use_fido:
-            click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your walker.toml.", fg="yellow"))
+            click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your wanderer.toml.", fg="yellow"))
             return
     
         click.echo("Querying database for files with unknown MIME types...")
@@ -394,37 +399,80 @@ class Indexer:
         self._prepare_paths_and_exclusions()
 
         if not self.final_root_paths:
-            config_path = Path("walker.toml")
+            config_path = Path("wanderer.toml")
             if not config_path.is_file():
-                click.echo(click.style("Warning: No scan paths provided and 'walker.toml' not found.", fg="yellow"))
+                click.echo(click.style("Warning: No scan paths provided and 'wanderer.toml' not found.", fg="yellow"))
                 click.echo(f"Please create a '{config_path.resolve()}' file with 'scan_dirs' or specify paths on the command line.")
             else:
                 click.echo(click.style("Warning: No scan paths provided.", fg="yellow"))
-                click.echo("Please add directories to 'scan_dirs' in your 'walker.toml' or specify paths on the command line.")
+                click.echo("Please add directories to 'scan_dirs' in your 'wanderer.toml' or specify paths on the command line.")
             return
 
-        click.echo(f"Starting scan with {self.final_workers} workers...")
-        if self.final_memory_limit and sys.platform != "win32":
-            click.echo(click.style(f"Applying a soft memory limit of {self.final_memory_limit:.2f} GB per worker.", fg="blue"))
+        # --- Create Scan Log Entry ---
+        scan_log_id = None
+        with database.get_session() as db_session:
+            new_log = models.ScanLog(
+                start_time=datetime.now(),
+                root_paths=[str(p) for p in self.final_root_paths],
+                status='started'
+            )
+            db_session.add(new_log)
+            db_session.commit()
+            scan_log_id = new_log.id
 
-        postfix_data = {"processed": 0}
-        with tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
-            # --- Pre-load existing file index into memory for fast lookups ---
-            click.echo("Loading existing file index into memory...")
-            with database.get_session() as db_session:
-                existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).all()
-                existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
-            click.echo(f"Loaded {len(existing_files_map)} records from the index.")
+        def report_progress(value, total, description):
+            if self.progress_callback:
+                self.progress_callback(value, total, description)
 
-            chunk_iterator = self._get_file_chunks(chunk_size=10000)
-            for path_chunk in chunk_iterator:
-                pbar.set_description("Filtering files...")
-                files_to_process = self._filter_chunk(path_chunk, existing_files_map)
-                pbar.update(len(path_chunk))
+        total_files_processed = 0
+        try:
+            click.echo(f"Starting scan with {self.final_workers} workers...")
+            if self.final_memory_limit and sys.platform != "win32":
+                click.echo(click.style(f"Applying a soft memory limit of {self.final_memory_limit:.2f} GB per worker.", fg="blue"))
 
-                if files_to_process:
-                    self._execute_processing_pool(files_to_process, "Processing chunk")
-                    postfix_data["processed"] += len(files_to_process)
-                    pbar.set_postfix(postfix_data)
+            postfix_data = {"processed": 0}
+            with tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
+                # --- Pre-load existing file index into memory for fast lookups ---
+                report_progress(0, 1, "Loading existing file index...")
+                with database.get_session() as db_session:
+                    existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).all()
+                    existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
+                click.echo(f"Loaded {len(existing_files_map)} records from the index.")
 
-        click.echo("All files have been processed and indexed.")
+                # First, get a total count of files for the progress bar
+                report_progress(0, 1, "Enumerating files...")
+                total_files_to_scan = sum(1 for _ in self._get_file_chunks(chunk_size=10000) for _ in _.pop())
+                pbar.reset(total=total_files_to_scan)
+                report_progress(0, total_files_to_scan, "Scanning files...")
+
+                chunk_iterator = self._get_file_chunks(chunk_size=10000)
+                for path_chunk in chunk_iterator:
+                    report_progress(pbar.n, pbar.total, "Filtering files...")
+                    files_to_process = self._filter_chunk(path_chunk, existing_files_map)
+                    pbar.update(len(path_chunk))
+
+                    if files_to_process:
+                        report_progress(pbar.n, pbar.total, f"Processing {len(files_to_process)} new/modified files...")
+                        self._execute_processing_pool(files_to_process, "Processing chunk")
+                        total_files_processed += len(files_to_process)
+                        pbar.set_postfix({"processed": total_files_processed})
+
+            click.echo("All files have been processed and indexed.")
+            status = 'completed'
+        except Exception as e:
+            status = 'failed'
+            logging.error(f"Scan failed: {e}", exc_info=True)
+            click.echo(click.style(f"Scan failed with an error: {e}", fg="red"), err=True)
+        finally:
+            # --- Update Scan Log Entry ---
+            if scan_log_id:
+                with database.get_session() as db_session:
+                    log_entry = db_session.get(models.ScanLog, scan_log_id)
+                    if log_entry:
+                        log_entry.end_time = datetime.now()
+                        log_entry.files_scanned = total_files_processed
+                        log_entry.status = status
+                        db_session.commit()
+                        click.echo(f"Scan log entry '{scan_log_id}' updated with status: {status}")
+        
+        report_progress(1, 1, f"Scan {status}.")
