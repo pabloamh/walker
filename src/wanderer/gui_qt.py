@@ -6,12 +6,13 @@ import multiprocessing
 import tomllib
 
 import spacy
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Signal, Slot, QFile
+from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFormLayout,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QProgressBar, QPushButton,
-                               QSpinBox, QStackedWidget, QTabWidget,
+                               QSpinBox, QStackedWidget, QTabWidget, QSpacerItem, QSizePolicy,
                                QVBoxLayout, QWidget, QDoubleSpinBox,
                                QFileDialog)
 
@@ -260,107 +261,60 @@ class SettingsViewWidget(QWidget):
         self.app_config = app_config
         self.config_path = config_path
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # --- Load UI from .ui file ---
+        ui_file_path = Path(__file__).parent / "ui" / "settings_view.ui"
+        loader = QUiLoader()
+        ui_file = QFile(ui_file_path)
+        ui_file.open(QFile.ReadOnly)
+        # The first argument to load is the .ui file, the second is the parent widget (self)
+        self.ui = loader.load(ui_file, self)
+        ui_file.close()
 
-        # Config path info
-        config_path_label = QLabel(f"Editing: {self.config_path}" if self.config_path else "No wanderer.toml found. Using default settings.")
-        config_path_label.setStyleSheet("font-style: italic;")
-        main_layout.addWidget(config_path_label)
+        # --- Set up layout ---
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.ui)
 
-        # Performance Group
-        performance_group = QGroupBox("Performance")
-        performance_layout = QFormLayout()
-        performance_group.setLayout(performance_layout)
-
-        self.workers_field = QSpinBox()
+        # --- Populate fields and connect signals ---
+        self.ui.config_path_label.setText(f"Editing: {self.config_path}" if self.config_path else "No wanderer.toml found. Using default settings.")
+        
         self.workers_field.setRange(1, multiprocessing.cpu_count() * 2)
         self.workers_field.setValue(self.app_config.workers)
-        performance_layout.addRow("Worker Processes:", self.workers_field)
-
-        self.db_batch_size_field = QSpinBox()
         self.db_batch_size_field.setRange(100, 10000)
         self.db_batch_size_field.setSingleStep(100)
         self.db_batch_size_field.setValue(self.app_config.db_batch_size)
-        performance_layout.addRow("DB Batch Size:", self.db_batch_size_field)
-
-        self.memory_limit_field = QDoubleSpinBox()
         self.memory_limit_field.setRange(0.0, 100.0)
         self.memory_limit_field.setSingleStep(0.5)
         self.memory_limit_field.setDecimals(1)
         self.memory_limit_field.setValue(self.app_config.memory_limit_gb or 0.0)
-        self.memory_limit_field.setSuffix(" GB")
-        performance_layout.addRow("RAM per Worker (GB):", self.memory_limit_field)
-        performance_layout.addRow("", QLabel("Note: RAM limit is only supported on Linux and macOS."))
-        main_layout.addWidget(performance_group)
 
-        # File Processing Group
-        file_processing_group = QGroupBox("File Processing")
-        file_processing_layout = QFormLayout()
-        file_processing_group.setLayout(file_processing_layout)
-
-        self.use_fido_switch = QCheckBox("Use Fido for accurate file type identification")
         self.use_fido_switch.setChecked(self.app_config.use_fido)
-        file_processing_layout.addRow("", self.use_fido_switch)
-
-        self.extract_text_switch = QCheckBox("Extract Text & PII on Scan")
         self.extract_text_switch.setChecked(self.app_config.extract_text_on_scan)
-        file_processing_layout.addRow("", self.extract_text_switch)
-
-        self.phash_switch = QCheckBox("Compute Perceptual Hash for Images")
         self.phash_switch.setChecked(self.app_config.compute_perceptual_hash)
-        file_processing_layout.addRow("", self.phash_switch)
-
-        self.pii_languages_field = QLineEdit()
         self.pii_languages_field.setText(",".join(self.app_config.pii_languages))
-        file_processing_layout.addRow("PII Languages (e.g., en,es):", self.pii_languages_field)
-
-        self.archive_excludes_field = QLineEdit()
         self.archive_excludes_field.setText(",".join(self.app_config.archive_exclude_extensions))
-        file_processing_layout.addRow("Archive extensions to skip extracting (e.g., .epub,.cbz):", self.archive_excludes_field)
-        main_layout.addWidget(file_processing_group)
 
-        # Scan Directories Group
-        scan_dirs_group = QGroupBox("Scan Directories")
-        scan_dirs_layout = QVBoxLayout()
-        scan_dirs_group.setLayout(scan_dirs_layout)
-        self.scan_dirs_list = QListWidget()
         self.update_scan_dirs_list()
-        scan_dirs_layout.addWidget(self.scan_dirs_list)
-        add_scan_dir_button = QPushButton("Add Directory")
-        add_scan_dir_button.clicked.connect(self.add_scan_dir)
-        scan_dirs_layout.addWidget(add_scan_dir_button)
-        main_layout.addWidget(scan_dirs_group)
-
-        # Excluded Directories & Patterns Group
-        exclude_dirs_group = QGroupBox("Excluded Directories & Patterns")
-        exclude_dirs_layout = QVBoxLayout()
-        exclude_dirs_group.setLayout(exclude_dirs_layout)
-        exclude_dirs_layout.addWidget(QLabel("Use folder names (e.g., 'node_modules') or glob patterns (e.g., '*.log') to exclude them everywhere. Full paths are not typically needed."))
-        self.exclude_dirs_list = QListWidget()
         self.update_exclude_dirs_list()
-        exclude_dirs_layout.addWidget(self.exclude_dirs_list)
-        self.new_exclude_dir_field = QLineEdit()
-        self.new_exclude_dir_field.setPlaceholderText("Add exclusion (e.g., 'node_modules', '*.log')")
-        add_exclude_dir_button = QPushButton("Add Exclusion")
-        add_exclude_dir_button.clicked.connect(self.add_excluded_dir)
-        exclude_row_layout = QHBoxLayout()
-        exclude_row_layout.addWidget(self.new_exclude_dir_field)
-        exclude_row_layout.addWidget(add_exclude_dir_button)
-        exclude_dirs_layout.addLayout(exclude_row_layout)
-        main_layout.addWidget(exclude_dirs_group)
-
+        
+        self.ui.add_scan_dir_button.clicked.connect(self.add_scan_dir)
+        self.ui.add_exclude_dir_button.clicked.connect(self.add_excluded_dir)
+        self.ui.save_settings_button.clicked.connect(self.save_settings)
+        self.ui.save_settings_button.setDisabled(self.config_path is None)
+        
         # Offline Assets Widget
         self.offline_assets_widget = OfflineAssetsWidget(self.app_config)
-        main_layout.addWidget(self.offline_assets_widget)
+        # Find the spacer and insert the widget before it
+        spacer_item = self.ui.main_layout.itemAt(self.ui.main_layout.count() - 2)
+        self.ui.main_layout.insertWidget(self.ui.main_layout.indexOf(spacer_item), self.offline_assets_widget)
 
-        # Save Settings Button
-        self.save_settings_button = QPushButton("Save Settings")
-        self.save_settings_button.clicked.connect(self.save_settings)
-        self.save_settings_button.setDisabled(self.config_path is None)
-        main_layout.addWidget(self.save_settings_button)
-
-        main_layout.addStretch()
+    # --- Magic properties to access UI elements easily ---
+    def __getattr__(self, name):
+        # This allows you to access widgets from the .ui file as if they were
+        # attributes of this class, e.g., self.workers_field
+        widget = self.ui.findChild(QWidget, name)
+        if widget:
+            return widget
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def update_scan_dirs_list(self):
         self.scan_dirs_list.clear()
