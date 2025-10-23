@@ -280,5 +280,12 @@ def gui():
     database.init_db()
     ft.app(target=gui.main)
 
+@cli.command(name="gui-qt")
+def gui_qt():
+    """Launches a sample Wanderer GUI using PyQt/PySide."""
+    from . import gui_qt
+    database.init_db()
+    gui_qt.main_qt() # type: ignore
+
 if __name__ == "__main__":
     cli()

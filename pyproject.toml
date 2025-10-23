@@ -34,6 +34,7 @@ sphinx-autobuild = "^2025.8.25"
 opf-fido = "^1.6.1"
 flet = "^0.28.3"
 tomli-w = "^1.2.0"
+pyside6 = "^6.10.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

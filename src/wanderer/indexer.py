@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from . import config, database, models, scanner
+from .models import Config
 from . import worker
 
 
@@ -26,6 +27,7 @@ class Indexer:
         workers: int,
         memory_limit_gb: Optional[float],
         exclude_paths: Tuple[str, ...],
+        app_config: Optional[Config] = None,
         progress_callback: Optional[callable] = None,
     ):
         """
@@ -37,8 +39,9 @@ class Indexer:
             memory_limit_gb: An optional soft memory limit for each worker in GB.
             exclude_paths: A tuple of paths or patterns to exclude from the scan.
             progress_callback: An optional callable to report progress to a GUI.
+            app_config: An optional Config object. If not provided, it's loaded from file.
         """
-        self.app_config = config.load_config()
+        self.app_config = app_config or config.load_config()
         self.cli_root_paths = root_paths
         self.cli_workers = workers
         self.cli_memory_limit_gb = memory_limit_gb
@@ -130,28 +133,35 @@ class Indexer:
         if chunk:
             yield chunk
 
-    def _filter_chunk(self, path_chunk: list[Path], existing_files: Dict[str, float]) -> list[Path]:
+    def _filter_chunk(self, path_chunk: list[Path], db_session: Session) -> list[Path]:
         """
         Filters a chunk of paths to find new or modified files.
 
-        This compares files against an in-memory dictionary of existing file paths
-        and their modification times.
+        This compares files against the database in a memory-efficient way.
 
         Args:
             path_chunk: A list of file paths to filter.
-            existing_files: A dictionary mapping file paths to their mtime.
+            db_session: The SQLAlchemy session to use for querying.
 
         Returns:
             A list of paths for files that need to be processed.
         """
         files_to_process = []
+        # Create a map of path strings to Path objects for quick lookup
+        path_map = {str(p.resolve()): p for p in path_chunk}
+        
+        # Query the DB for existing files that are in the current chunk
+        existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).filter(models.FileIndex.path.in_(path_map.keys())).all()
+        existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
+
         for p in path_chunk:
             try:
                 path_str = str(p.resolve())
                 mtime = p.stat().st_mtime
-                if path_str not in existing_files or mtime > existing_files[path_str]:
+                if path_str not in existing_files_map or mtime > existing_files_map[path_str]:
                     files_to_process.append(p)
             except FileNotFoundError:
+                # File was deleted between scanning and filtering
                 continue
         return files_to_process
 
@@ -168,28 +178,34 @@ class Indexer:
         writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
         writer_thread.start()
 
-        with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
-            future_to_path = {
-                executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
-                for path in paths_to_process
-            }
+        # If a GUI progress callback is provided, use it. Otherwise, use tqdm for CLI.
+        if self.progress_callback:
+            total = len(paths_to_process)
+            with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
+                futures = [executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit) for path in paths_to_process]
+                for i, future in enumerate(as_completed(futures)):
+                    self.progress_callback(i + 1, total, description)
+                    future.result()  # Raise any exceptions
+        else:
+            with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
+                future_to_path = {
+                    executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
+                    for path in paths_to_process
+                }
 
-            WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
-            for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc=description):
-                try:
-                    future.result(timeout=WORKER_TIMEOUT_SECONDS)
-                except TimeoutError:
-                    path = future_to_path[future]
-                    error_message = f"Worker timed out after {WORKER_TIMEOUT_SECONDS}s processing '{path}'. It may be a very large or corrupt file."
-                    logging.error(error_message)
-                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
-                except Exception as exc:
-                    path = future_to_path[future]
-                    error_message = f"Error processing '{path}': {exc}"
-                    logging.error(error_message)
-                    tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
+                WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
+                for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc=description):
+                    try:
+                        future.result(timeout=WORKER_TIMEOUT_SECONDS)
+                    except Exception as exc:
+                        path = future_to_path[future]
+                        error_message = f"Error processing '{path}': {exc}"
+                        logging.error(error_message, exc_info=True)
+                        tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
-        results_queue.put(worker.sentinel)
+        # Each worker needs to signal it's done
+        for _ in range(self.final_workers):
+            results_queue.put(worker.sentinel)
         writer_thread.join()
 
     def refine_unknown_files(self):
@@ -430,26 +446,21 @@ class Indexer:
             if self.final_memory_limit and sys.platform != "win32":
                 click.echo(click.style(f"Applying a soft memory limit of {self.final_memory_limit:.2f} GB per worker.", fg="blue"))
 
-            postfix_data = {"processed": 0}
-            with tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
-                # --- Pre-load existing file index into memory for fast lookups ---
-                report_progress(0, 1, "Loading existing file index...")
-                with database.get_session() as db_session:
-                    existing_files_from_db = db_session.query(models.FileIndex.path, models.FileIndex.mtime).all()
-                    existing_files_map = {path: mtime for path, mtime in existing_files_from_db}
-                click.echo(f"Loaded {len(existing_files_map)} records from the index.")
+            with database.get_session() as db_session:
+                postfix_data = {"processed": 0}
+                with tqdm(desc="Scanning for files...", unit=" files", postfix=postfix_data) as pbar:
+                    chunk_iterator = self._get_file_chunks(chunk_size=10000)
+                    for path_chunk in chunk_iterator:
+                        report_progress(pbar.n, pbar.total, "Filtering files...")
+                        # Filter chunk against the database session
+                        files_to_process = self._filter_chunk(path_chunk, db_session)
+                        pbar.update(len(path_chunk))
 
-                chunk_iterator = self._get_file_chunks(chunk_size=10000)
-                for path_chunk in chunk_iterator:
-                    report_progress(pbar.n, pbar.total, "Filtering files...")
-                    files_to_process = self._filter_chunk(path_chunk, existing_files_map)
-                    pbar.update(len(path_chunk))
-
-                    if files_to_process:
-                        report_progress(pbar.n, pbar.total, f"Processing {len(files_to_process)} new/modified files...")
-                        self._execute_processing_pool(files_to_process, "Processing chunk")
-                        total_files_processed += len(files_to_process)
-                        pbar.set_postfix({"processed": total_files_processed})
+                        if files_to_process:
+                            report_progress(pbar.n, pbar.total, f"Processing {len(files_to_process)} new/modified files...")
+                            self._execute_processing_pool(files_to_process, "Processing chunk")
+                            total_files_processed += len(files_to_process)
+                            pbar.set_postfix({"processed": total_files_processed})
 
             click.echo("All files have been processed and indexed.")
             status = 'completed'

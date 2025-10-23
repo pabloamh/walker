@@ -79,7 +79,7 @@ def get_pii_analyzer() -> AnalyzerEngine:
     nlp_engine = provider.create_engine()
 
     # Create a registry and explicitly load recognizers for the supported languages
-    registry = RecognizerRegistry()
+    registry = RecognizerRegistry(supported_languages=app_config.pii_languages)
     registry.load_predefined_recognizers(languages=app_config.pii_languages)
 
     return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
@@ -349,14 +349,20 @@ class FileProcessor:
             # Fido writes its output to stdout. We capture it.
             # The '-q' flag makes the output cleaner (just the CSV).
             # The '-input' flag is more explicit for specifying the file path.
+            # We use os.fsencode to handle non-UTF8 paths gracefully.
             result = subprocess.run(
-                ["fido", "-q", "-input", str(self.file_path)],
-                capture_output=True, text=True, check=True
+                ["fido", "-q", "-input", os.fsencode(self.file_path)],
+                capture_output=True, check=True
             )
+            
+            # Decode stdout manually, ignoring errors in case Fido's output is malformed.
+            stdout = result.stdout.decode('utf-8', errors='ignore')
+            stderr = result.stderr.decode('utf-8', errors='ignore')
+
             # Fido output is a CSV: status,time,puid,formatname,signaturename,mimetype,basis,warning
             # We take the first line of output, as a file can have multiple matches.
-            first_line = result.stdout.strip().splitlines()[0]
-            parts = first_line.split(',')
+            first_line = stdout.strip().splitlines()
+            parts = first_line[0].split(',') if first_line else []
             puid = parts[2].strip('"')
             mimetype = parts[5].strip('"')
             return puid, mimetype
@@ -364,7 +370,8 @@ class FileProcessor:
             logging.error("The 'fido' command was not found. Please ensure 'opf-fido' is installed and in your system's PATH.")
             return None
         except subprocess.CalledProcessError as e:
-            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {e.stderr.strip()}")
+            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {stderr.strip()}")
             return None
         except IndexError:
             logging.warning(f"Fido returned unexpected output for {self.file_path}. Could not parse PRONOM ID.")

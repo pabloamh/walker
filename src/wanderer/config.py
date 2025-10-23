@@ -96,6 +96,13 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
     # Default extensions for archives that should not be extracted
     default_archive_excludes = [".epub", ".cbz", ".cbr"]
 
+    # Resolve the embedding model path to be absolute relative to the config file
+    embedding_model_path_str = wanderer_config.get("embedding_model_path", "models/all-MiniLM-L6-v2")
+    if config_path and not Path(embedding_model_path_str).is_absolute():
+        # Ensure the path is resolved relative to the config file's location
+        if not (config_path.parent / embedding_model_path_str).exists():
+            embedding_model_path_str = str((Path(__file__).parent / embedding_model_path_str).resolve())
+
     loaded_config = Config(
         workers=wanderer_config.get("workers", 3),
         db_batch_size=wanderer_config.get("db_batch_size", 500),
@@ -103,7 +110,7 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
         scan_dirs=wanderer_config.get("scan_dirs", []),
         pii_languages=wanderer_config.get("pii_languages", ["en"]),
         memory_limit_gb=wanderer_config.get("memory_limit_gb"),
-        embedding_model_path=wanderer_config.get("embedding_model_path", "models/all-MiniLM-L6-v2"),
+        embedding_model_path=embedding_model_path_str,
         use_fido=wanderer_config.get("use_fido", False),
         extract_text_on_scan=wanderer_config.get("extract_text_on_scan", True),
         compute_perceptual_hash=wanderer_config.get("compute_perceptual_hash", True),
