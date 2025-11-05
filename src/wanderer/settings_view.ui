@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingsViewWidget</class>
+ <widget class="QWidget" name="SettingsViewWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>813</width>
+    <height>858</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="main_layout">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="config_path_label">
+     <property name="text">
+      <string>Editing: ...</string>
+     </property>
+     <property name="italic">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="performance_group">
+     <property name="title">
+      <string>Performance</string>
+     </property>
+     <layout class="QFormLayout" name="performance_layout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Worker Processes:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QSpinBox" name="workers_field"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>DB Batch Size:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSpinBox" name="db_batch_size_field"/>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_3">
+        <property name="text">
+         <string>RAM per Worker (GB):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QDoubleSpinBox" name="memory_limit_field"/>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLabel" name="label_4">
+        <property name="text">
+         <string>Note: RAM limit is only supported on Linux and macOS.</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="file_processing_group">
+     <property name="title">
+      <string>File Processing</string>
+     </property>
+     <layout class="QFormLayout" name="file_processing_layout">
+      <item row="0" column="1">
+       <widget class="QCheckBox" name="use_fido_switch">
+        <property name="text">
+         <string>Use Fido for accurate file type identification</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QCheckBox" name="extract_text_switch">
+        <property name="text">
+         <string>Extract Text &amp; PII on Scan</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="phash_switch">
+        <property name="text">
+         <string>Compute Perceptual Hash for Images</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_5">
+        <property name="text">
+         <string>PII Languages (e.g., en,es):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="pii_languages_field"/>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_6">
+        <property name="text">
+         <string>Archive extensions to skip extracting (e.g., .epub,.cbz):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QLineEdit" name="archive_excludes_field"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="scan_dirs_group">
+     <property name="title">
+      <string>Scan Directories</string>
+     </property>
+     <layout class="QVBoxLayout" name="scan_dirs_layout">
+      <item>
+       <widget class="QListWidget" name="scan_dirs_list"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="add_scan_dir_button">
+        <property name="text">
+         <string>Add Directory</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="exclude_dirs_group">
+     <property name="title">
+      <string>Excluded Directories &amp; Patterns</string>
+     </property>
+     <layout class="QVBoxLayout" name="exclude_dirs_layout">
+      <item>
+       <widget class="QLabel" name="label_7">
+        <property name="text">
+         <string>Use folder names (e.g., 'node_modules') or glob patterns (e.g., '*.log') to exclude them everywhere. Full paths are not typically needed.</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QListWidget" name="exclude_dirs_list"/>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout">
+        <item>
+         <widget class="QLineEdit" name="new_exclude_dir_field">
+          <property name="placeholderText">
+           <string>Add exclusion (e.g., 'node_modules', '*.log')</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="add_exclude_dir_button">
+          <property name="text">
+           <string>Add Exclusion</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="save_settings_button">
+     <property name="text">
+      <string>Save Settings</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

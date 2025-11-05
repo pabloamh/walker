@@ -1,4 +1,4 @@
-# walker/reporter.py
+# wanderer/reporter.py
 from collections import defaultdict
 from itertools import groupby
 

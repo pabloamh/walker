@@ -1,4 +1,4 @@
-# walker/file_processor.py
+# wanderer/file_processor.py
 import email
 import logging
 import functools
@@ -43,25 +43,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="PIL.TiffImagePlu
 def get_embedding_model() -> SentenceTransformer:
     """Loads the SentenceTransformer model."""
     app_config = config.load_config()
-    model_name_or_path = app_config.embedding_model_path or 'all-MiniLM-L6-v2'
-
-    # If a relative path is provided, make it relative to the script's directory
-    # to ensure it's found correctly regardless of where the app is run from.
-    if app_config.embedding_model_path and not os.path.isabs(app_config.embedding_model_path):
-        script_dir = Path(__file__).parent
-        model_name_or_path = str(script_dir / app_config.embedding_model_path)
+    
+    # The model path in config is relative to the script dir.
+    script_dir = Path(__file__).parent
+    model_name_or_path = str(script_dir / (app_config.embedding_model_path or "models/all-MiniLM-L6-v2"))
 
     return SentenceTransformer(model_name_or_path, device='cpu')
-
-def get_spacy_model_name(lang_code: str) -> str:
-    """Gets the default spaCy model name for a given language code."""
-    # This mapping can be expanded for more languages
-    model_map = {
-        "en": "en_core_web_lg",
-        "es": "es_core_news_md", # Using 'md' as it's smaller and often sufficient
-        "fr": "fr_core_news_lg",
-    }
-    return model_map.get(lang_code, f"{lang_code}_core_news_lg")
 
 @functools.lru_cache(maxsize=None)
 def get_pii_analyzer() -> AnalyzerEngine:
@@ -83,7 +70,7 @@ def get_pii_analyzer() -> AnalyzerEngine:
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [
-            {"lang_code": lang, "model_name": get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
+            {"lang_code": lang, "model_name": config.get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
             for lang in app_config.pii_languages
         ]
     }
@@ -92,7 +79,7 @@ def get_pii_analyzer() -> AnalyzerEngine:
     nlp_engine = provider.create_engine()
 
     # Create a registry and explicitly load recognizers for the supported languages
-    registry = RecognizerRegistry()
+    registry = RecognizerRegistry(supported_languages=app_config.pii_languages)
     registry.load_predefined_recognizers(languages=app_config.pii_languages)
 
     return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
@@ -165,7 +152,9 @@ class FileProcessor:
         """Generates a perceptual hash and extracts EXIF data for an image file."""
         try:
             with Image.open(self.file_path) as img:
-                p_hash = str(imagehash.phash(img))
+                p_hash = None
+                if self.app_config.compute_perceptual_hash:
+                    p_hash = str(imagehash.phash(img))
                 exif = self._process_exif(img)
                 return p_hash, exif
         except Exception:
@@ -360,14 +349,20 @@ class FileProcessor:
             # Fido writes its output to stdout. We capture it.
             # The '-q' flag makes the output cleaner (just the CSV).
             # The '-input' flag is more explicit for specifying the file path.
+            # We use os.fsencode to handle non-UTF8 paths gracefully.
             result = subprocess.run(
-                ["fido", "-q", "-input", str(self.file_path)],
-                capture_output=True, text=True, check=True
+                ["fido", "-q", "-input", os.fsencode(self.file_path)],
+                capture_output=True, check=True
             )
+            
+            # Decode stdout manually, ignoring errors in case Fido's output is malformed.
+            stdout = result.stdout.decode('utf-8', errors='ignore')
+            stderr = result.stderr.decode('utf-8', errors='ignore')
+
             # Fido output is a CSV: status,time,puid,formatname,signaturename,mimetype,basis,warning
             # We take the first line of output, as a file can have multiple matches.
-            first_line = result.stdout.strip().splitlines()[0]
-            parts = first_line.split(',')
+            first_line = stdout.strip().splitlines()
+            parts = first_line[0].split(',') if first_line else []
             puid = parts[2].strip('"')
             mimetype = parts[5].strip('"')
             return puid, mimetype
@@ -375,7 +370,8 @@ class FileProcessor:
             logging.error("The 'fido' command was not found. Please ensure 'opf-fido' is installed and in your system's PATH.")
             return None
         except subprocess.CalledProcessError as e:
-            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {e.stderr.strip()}")
+            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {stderr.strip()}")
             return None
         except IndexError:
             logging.warning(f"Fido returned unexpected output for {self.file_path}. Could not parse PRONOM ID.")

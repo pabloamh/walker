@@ -1,8 +1,8 @@
- # walker/models.py
+ # wanderer/models.py
 from typing import Optional
 
 import attrs
-from sqlalchemy import BLOB, Boolean, Column, Float, Integer, String, BigInteger, JSON
+from sqlalchemy import BLOB, Boolean, Column, Float, Integer, String, BigInteger, JSON, DateTime
 from sqlalchemy.orm import declarative_base
 
 # --- Attrs class for data processing ---
@@ -86,3 +86,14 @@ class FileIndex(Base):
 
     def __repr__(self):
         return f"<FileIndex(filename='{self.filename}', path='{self.path}')>"
+
+class ScanLog(Base):
+    """Stores a record of each scan performed."""
+    __tablename__ = 'scan_log'
+
+    id = Column(Integer, primary_key=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime)
+    root_paths = Column(JSON, nullable=False)
+    files_scanned = Column(Integer, default=0)
+    status = Column(String, nullable=False, default='started') # e.g., 'started', 'completed', 'failed'

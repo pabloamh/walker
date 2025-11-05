@@ -9,7 +9,7 @@ from . import config, database, models, log_manager
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
-    log_file = Path(__file__).parent / "walker.log"
+    log_file = Path(__file__).parent / "wanderer.log"
     # Use a custom handler to prevent huge log files from repetitive errors.
     handler = log_manager.DeduplicatingLogHandler(log_file, mode='a')
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -73,7 +73,7 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
     """
     Scans a directory recursively, processes files, and saves metadata to a SQLite DB.
 
-    If ROOT_PATHS are not provided, it will use 'scan_dirs' from walker.toml.
+    If ROOT_PATHS are not provided, it will use 'scan_dirs' from wanderer.toml.
     """
     from .indexer import Indexer
 
@@ -125,6 +125,63 @@ def refine_text(workers: int):
     # Force text extraction to be on for this operation.
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
     indexer.refine_text_content()
+
+@cli.command(name="refine-text-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_text_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Extracts text content for all files under a specific path.
+
+    This is useful for performing a deep text analysis on a targeted
+    directory (e.g., '~/Documents') after a fast initial scan.
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_text_content_by_path(paths)
+
+@cli.command(name="refine-images-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_images_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Computes perceptual hashes for all images under a specific path.
+
+    This is useful for enabling similar-image search on a targeted
+    directory (e.g., '~/Pictures') after a fast initial scan.
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_image_content_by_path(paths)
+
+@cli.command(name="refine-fido-by-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_fido_by_path(paths: Tuple[Path, ...], workers: int):
+    """
+    Forces a Fido rescan for all files under a specific path.
+
+    This is useful for ensuring the highest accuracy file identification
+    on a targeted directory (e.g., '~/Scans').
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_fido_by_path(paths)
+
+@cli.command(name="refine-images-by-mime-and-path")
+@click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
+@click.option('--mime-type', 'mime_types', multiple=True, required=True, help='MIME type to target (e.g., "image/jpeg"). Can be used multiple times.')
+@click.option('--workers', default=3, help='Number of processor workers.')
+def refine_images_by_mime_and_path(paths: Tuple[Path, ...], mime_types: Tuple[str, ...], workers: int):
+    """
+    Computes perceptual hashes for specific image MIME types under a path.
+
+    Example: phash for jpegs under '~/Pictures':
+    ... refine-images-by-mime-and-path --mime-type "image/jpeg" ~/Pictures
+    """
+    from .indexer import Indexer
+    indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
+    indexer.refine_image_content_by_path(paths, mime_types=mime_types)
 
 @cli.command(name="download-assets")
 def download_assets():
@@ -214,6 +271,21 @@ def list_pii_files():
     from .reporter import Reporter
     reporter = Reporter()
     reporter.list_pii_files()
+
+@cli.command(name="gui")
+def gui():
+    """Launches the Wanderer graphical user interface."""
+    from . import gui
+    import flet as ft
+    database.init_db()
+    ft.app(target=gui.main)
+
+@cli.command(name="gui-qt")
+def gui_qt():
+    """Launches a sample Wanderer GUI using PyQt/PySide."""
+    from . import gui_qt
+    database.init_db()
+    gui_qt.main_qt() # type: ignore
 
 if __name__ == "__main__":
     cli()

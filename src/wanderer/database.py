@@ -1,4 +1,4 @@
-# walker/database.py
+# wanderer/database.py
 from sqlalchemy import create_engine
 from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker

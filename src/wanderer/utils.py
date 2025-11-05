@@ -1,4 +1,4 @@
-# walker/utils.py
+# wanderer/utils.py
 from typing import List, Tuple, Any, Dict
 
 def group_pairs(pairs: List[Tuple[int, int]], items: List[Any]) -> List[List[Any]]:

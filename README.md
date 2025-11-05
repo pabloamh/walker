@@ -1,6 +1,6 @@
-# Walker File Indexer
+# Wanderer File Indexer
 
-A powerful and efficient file indexer that recursively scans directories, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis. Built with a multiprocessing architecture, `walker` is fast and suitable for large file collections.
+A powerful and efficient file indexer that recursively scans directories, extracts rich metadata from files, and stores it in a SQLite database for easy querying and analysis. Built with a multiprocessing architecture, `wanderer` is fast and suitable for large file collections.
 
 ## Features
 
@@ -27,24 +27,23 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 - **Powerful CLI**: Easy-to-use command-line interface built with Click for indexing and reporting.
 - **Flexible Configuration**: Uses a `walker.toml` file for persistent settings and supports command-line overrides.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
-
 ## Quick Start
 
 1.  **Install prerequisites** (Python 3.11+, Poetry, `libmagic`, `mediainfo`).
 2.  **Clone and install**:
     ```sh
     git clone <your-repo-url>
-    cd walker
+    cd wanderer
     poetry install
     ```
 3.  **Download offline assets** (AI models, etc.):
     ```sh
-    poetry run python -m walker.main download-assets
+    poetry run python -m wanderer.main download-assets
     ```
-4.  **Configure `src/walker/walker.toml`** to set your scan directories.
+4.  **Configure `src/wanderer/wanderer.toml`** to set your scan directories.
 5.  **Run the indexer**:
     ```sh
-    poetry run python -m walker.main index
+    poetry run python -m wanderer.main index
     ```
 
 ## Prerequisites
@@ -74,7 +73,7 @@ This project uses Poetry for dependency management.
 1.  **Clone the Repository**:
     ```sh
     git clone <your-repo-url>
-    cd walker
+    cd wanderer
     ```
 
 2.  **Install Python Dependencies**:
@@ -85,14 +84,14 @@ This project uses Poetry for dependency management.
 
 ## Configuration
 
-For convenience, you can define your default settings in a `walker.toml` file. The application will automatically look for this file in the `src/walker/` directory. This is the recommended way to set options you use frequently.
+For convenience, you can define your default settings in a `wanderer.toml` file. The application will automatically look for this file in the `src/wanderer/` directory. This is the recommended way to set options you use frequently.
 
-### Example `src/walker/walker.toml`
+### Example `src/wanderer/wanderer.toml`
 
-All settings for `walker` must be placed under the `[tool.walker]` section. Here is a comprehensive example:
+All settings for `wanderer` must be placed under the `[tool.wanderer]` section. Here is a comprehensive example:
 
 ```toml
-[tool.walker]
+[tool.wanderer]
 # workers: Set the default number of worker threads for processing.
 workers = 8
 
@@ -162,7 +161,7 @@ pii_languages = ["en", "es"]
 
 # embedding_model_path: Path to a locally saved sentence-transformer model.
 # If set, the application will not need internet access to download it.
-# The path is resolved relative to the location of this `walker.toml` file.
+# The path is resolved relative to the location of this `wanderer.toml` file.
 # embedding_model_path = "models/all-MiniLM-L6-v2"
 
 # use_fido: Enable Fido for more accurate file type identification.
@@ -186,26 +185,23 @@ The application uses several components that may require online access to downlo
 
 ### Step 1: Download All Offline Assets
 
-On a machine with internet access, run the provided `download_assets.py` script. This will download and cache all necessary models and data files into the `src/walker/models/` directory.
-
 From the project's root directory, run:
 ```sh
-poetry run python -m walker.main download-assets
+poetry run python -m wanderer.main download-assets
 ```
 
 This script will perform the following actions:
 1.  **Download the `sentence-transformer` model** (`all-MiniLM-L6-v2`) and save it to `src/walker/models/all-MiniLM-L6-v2`.
-2.  **Download the `spaCy` language model** (`en_core_web_lg`) required for PII detection.
-3.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `walker.toml`.
-4.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/walker/models/tldextract_cache`.
-5.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your config.
+2.  **Download `spaCy` language models** for all languages configured in `pii_languages` in your `wanderer.toml`.
+3.  **Cache the Public Suffix List** used by `tldextract` (a dependency of the PII analyzer) and save it to `src/wanderer/models/tldextract_cache`.
+4.  **Download the PRONOM signature file** used by `fido` if `use_fido = true` is set in your `wanderer.toml`.
 
 ### Step 2: Update Configuration for Offline Use
 
-Update your `walker.toml` to point to the downloaded assets.
+Update your `wanderer.toml` to point to the downloaded assets.
 
 ```toml
-[tool.walker]
+[tool.wanderer]
 # ... other settings ...
 
 # Path to the locally saved sentence-transformer model.
@@ -217,20 +213,20 @@ use_fido = true
 
 ### Step 3: Running Offline
 
-When you deploy your application, ensure the `src/walker/models` directory (containing the downloaded assets) is included.
+When you deploy your application, ensure the `src/wanderer/models` directory (containing the downloaded assets) is included.
 
 To ensure `tldextract` and `fido` use their local caches, you must **set environment variables** before running the application.
 
 ```bash
 # Set environment variables to point to the cached assets.
 # These paths should be absolute or relative to where you run the command.
-export TLDEXTRACT_CACHE_DIR="$(pwd)/src/walker/models/tldextract_cache"
+export TLDEXTRACT_CACHE_DIR="$(pwd)/src/wanderer/models/tldextract_cache"
 
 # The FIDO_SIG_FILE variable tells fido where to find its signature file.
-export FIDO_SIG_FILE="$(pwd)/src/walker/models/fido_cache/DROID_SignatureFile.xml"
+export FIDO_SIG_FILE="$(pwd)/src/wanderer/models/fido_cache/DROID_SignatureFile.xml"
 
 # Now run the indexer
-poetry run python -m walker.main index
+poetry run python -m wanderer.main index
 ```
 
 With these steps completed, the application will be fully functional without requiring any internet access.
@@ -241,10 +237,10 @@ The application has multiple sub-commands.
 
 ### Indexing Files
 
-To scan a directory and build or update your index, use the `index` command. The application will automatically change its working directory to `src/walker/` to ensure all paths are resolved correctly.
+To scan a directory and build or update your index, use the `index` command.
 
 ```bash
-poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
+poetry run python -m wanderer.main index [ROOT_PATHS...] [OPTIONS]
 ```
 
 **Arguments:**
@@ -254,10 +250,10 @@ poetry run python -m walker.main index [ROOT_PATHS...] [OPTIONS]
 
 ### Refining Unknown Files
 
-After an initial scan, you can run this command to re-process any files that were identified with a generic MIME type (like `application/octet-stream`). It uses `fido` to attempt a more accurate identification. This requires `use_fido = true` in your `walker.toml`.
+After an initial scan, you can run this command to re-process any files that were identified with a generic MIME type (like `application/octet-stream`). It uses `fido` to attempt a more accurate identification. This requires `use_fido = true` in your `wanderer.toml`.
 
 ```bash
-poetry run python -m walker.main refine-unknowns
+poetry run python -m wanderer.main refine-unknowns
 ```
 
 This is useful for improving your data quality without slowing down the initial indexing process.
@@ -271,7 +267,7 @@ Once your index is built, you can run reports to find duplicates, analyze your d
 This command finds all files that are bit-for-bit identical by comparing their SHA-256 hashes. It will identify the oldest file in each set as the "Source".
 
 ```bash
-poetry run python -m walker.main find-dupes
+poetry run python -m wanderer.main find-dupes
 ```
 
 #### Find Similar Images
@@ -280,10 +276,10 @@ This command finds images that are visually identical or similar. By default, it
 
 ```bash
 # Find exact duplicates
-poetry run python -m walker.main find-image-dupes
+poetry run python -m wanderer.main find-image-dupes
 
 # Find very similar images (e.g., different resolutions or minor edits)
-poetry run python -m walker.main find-image-dupes --threshold 4
+poetry run python -m wanderer.main find-image-dupes --threshold 4
 ```
 
 #### Find Similar Text
@@ -292,7 +288,7 @@ This command uses AI model embeddings to find documents with similar text conten
 
 ```bash
 # Find documents that are at least 95% similar
-poetry run python -m walker.main find-similar-text --threshold 0.95
+poetry run python -m wanderer.main find-similar-text --threshold 0.95
 ```
 
 #### Semantic Search

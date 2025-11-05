@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "walker"
+name = "wanderer"
 version = "0.1.0"
-description = "A powerful and efficient file indexer that recursively scans a directory and extracts rich metadata."
-authors = ["Pablo @pabloamh"]
+description = "A powerful and efficient file indexer and GUI."
+authors = ["Your Name <you@example.com>"]
 readme = "README.md"
-packages = [{include = "walker", from = "src"}]
+packages = [{include = "wanderer", from = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
@@ -32,7 +32,9 @@ myst-parser = "^4.0.1"
 sphinx-click = "^6.1.0"
 sphinx-autobuild = "^2025.8.25"
 opf-fido = "^1.6.1"
-
+flet = "^0.28.3"
+tomli-w = "^1.2.0"
+pyside6 = "^6.10.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

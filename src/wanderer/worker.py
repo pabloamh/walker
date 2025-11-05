@@ -1,4 +1,4 @@
-# walker/worker.py
+# wanderer/worker.py
 import logging
 import queue
 import resource
@@ -48,14 +48,18 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
         while True:
             item: Optional[FileMetadata] = db_queue.get()
             if item is sentinel:
+                db_queue.task_done()
                 # Final commit for any remaining items in the batch
                 total_processed += commit_batch(db_session, batch)
+                # All sentinels are in, wait for all tasks to be marked as done.
+                db_queue.join()
+                db_queue.task_done()
                 break
-            
-            batch.append(attrs.asdict(item))
-            if len(batch) >= batch_size:
-                total_processed += commit_batch(db_session, batch)
-            db_queue.task_done()
+            else:
+                batch.append(attrs.asdict(item)) # type: ignore
+                if len(batch) >= batch_size:
+                    total_processed += commit_batch(db_session, batch)
+                db_queue.task_done()
     click.echo(f"DB writer finished. A total of {total_processed} records were written.")
 
 
