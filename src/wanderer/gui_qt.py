@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import multiprocessing
-import tomllib
+import tomllib, click
 
 import spacy
-from PySide6.QtCore import QObject, QThread, Signal, Slot, QFile
-from PySide6.QtGui import QPalette
+from PySide6.QtCore import QObject, QThread, Signal, Slot, QFile, QSize, Qt
+from PySide6.QtGui import QPalette, QIcon, QPixmap
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFormLayout,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit, QHeaderView, QTextBrowser,
@@ -854,7 +854,8 @@ class ReportsViewWidget(QWidget):
         self.run_similar_images_button.clicked.connect(self.run_similar_images_report)
         similar_images_controls.addWidget(self.image_threshold_spinbox)
         similar_images_controls.addWidget(self.run_similar_images_button)
-        similar_images_controls.addStretch()
+        self.similar_images_status = QLabel("")
+        similar_images_controls.addWidget(self.similar_images_status)
         self.similar_images_tree = QTreeWidget()
         self.similar_images_tree.setHeaderLabels(["File Path", ""])
         self.similar_images_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -975,16 +976,27 @@ class ReportsViewWidget(QWidget):
     def run_similar_images_report(self):
         self.run_similar_images_button.setDisabled(True)
         self.similar_images_tree.clear()
+        self.similar_images_status.setText("Running report...")
         threshold = self.image_threshold_spinbox.value()
         reporter = Reporter()
         self._run_report(reporter.find_image_dupes, self.on_similar_images_finished, threshold, print_output=False)
 
     @Slot(object)
     def on_similar_images_finished(self, groups):
+        self.similar_images_status.setText(f"Found {len(groups or [])} groups of similar images.")
+        if not groups:
+            self.run_similar_images_button.setDisabled(False)
+            return
+
+        self.similar_images_tree.setIconSize(QSize(128, 128))
+
         for i, group in enumerate(groups or []):
             group_item = QTreeWidgetItem(self.similar_images_tree, [f"Similar Group {i+1} ({len(group)} images)", ""])
             for path in group:
-                QTreeWidgetItem(group_item, [path, ""])
+                item = QTreeWidgetItem(group_item, [path, ""])
+                pixmap = QPixmap(path)
+                if not pixmap.isNull():
+                    item.setIcon(0, QIcon(pixmap.scaled(QSize(128, 128), Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         self.similar_images_tree.expandAll()
         self.run_similar_images_button.setDisabled(False)
 
