@@ -47,6 +47,7 @@ def get_spacy_model_name(lang_code: str) -> str:
 class Config:
     """Structured configuration for the wanderer application."""
     workers: int = 3
+    database_path: str = "wanderer.db"
     db_batch_size: int = 500
     exclude_dirs: List[str] = attrs.field(factory=lambda: list(DEFAULT_EXCLUDE_DIRS))
     scan_dirs: List[str] = attrs.field(factory=list)
@@ -97,11 +98,22 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
     default_archive_excludes = [".epub", ".cbz", ".cbr"]
 
     # Resolve the embedding model path to be absolute relative to the config file
+    # Handle the embedding model path
     embedding_model_path_str = wanderer_config.get("embedding_model_path", "models/all-MiniLM-L6-v2")
     if config_path and not Path(embedding_model_path_str).is_absolute():
         # Ensure the path is resolved relative to the config file's location
         if not (config_path.parent / embedding_model_path_str).exists():
             embedding_model_path_str = str((Path(__file__).parent / embedding_model_path_str).resolve())
+    if config_path and not Path(embedding_model_path_str).is_absolute() and (config_path.parent / embedding_model_path_str).exists():
+        # If the path is relative and exists relative to the config file, make it absolute.
+        embedding_model_path_str = str((config_path.parent / embedding_model_path_str).resolve())
+
+    # Resolve the database path to be absolute relative to the config file
+    db_path_str = wanderer_config.get("database_path", "wanderer.db")
+    if config_path and not Path(db_path_str).is_absolute():
+        db_path_str = str((config_path.parent / db_path_str).resolve())
+    elif not Path(db_path_str).is_absolute():
+        db_path_str = str((Path.cwd() / db_path_str).resolve())
 
     loaded_config = Config(
         workers=wanderer_config.get("workers", 3),
@@ -110,6 +122,7 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
         scan_dirs=wanderer_config.get("scan_dirs", []),
         pii_languages=wanderer_config.get("pii_languages", ["en"]),
         memory_limit_gb=wanderer_config.get("memory_limit_gb"),
+        database_path=db_path_str,
         embedding_model_path=embedding_model_path_str,
         use_fido=wanderer_config.get("use_fido", False),
         extract_text_on_scan=wanderer_config.get("extract_text_on_scan", True),
@@ -132,6 +145,7 @@ def config_to_dict(cfg: Config) -> Dict[str, Any]:
     # default Config instance.
     return {
         "workers": cfg.workers,
+        "database_path": cfg.database_path,
         "db_batch_size": cfg.db_batch_size,
         "exclude_dirs": sorted(list(set(cfg.exclude_dirs) - set(DEFAULT_EXCLUDE_DIRS))),
         "scan_dirs": cfg.scan_dirs,

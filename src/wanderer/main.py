@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import click
 
-from . import config, database, models, log_manager
+from . import config, database, log_manager
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
@@ -79,11 +79,6 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
 
     # Change to the script's directory to reliably find walker.toml and the DB.
     setup_logging()
-
-    script_dir = Path(__file__).parent
-
-    # Load config relative to the script directory
-    app_config = config.load_config()
 
     click.echo(f"Initializing database...")
     database.init_db()
@@ -221,7 +216,8 @@ def search(query_text: Tuple[str, ...], limit: int):
     """
     Performs a semantic search for files based on text content.
     
-    QUERY_TEXT: The text to search for.
+    Example:
+    `poetry run python -m wanderer.main search "financial results" --limit 5`
     """
     from .reporter import Reporter
     if not query_text:
@@ -271,14 +267,6 @@ def list_pii_files():
     from .reporter import Reporter
     reporter = Reporter()
     reporter.list_pii_files()
-
-@cli.command(name="gui")
-def gui():
-    """Launches the Wanderer graphical user interface."""
-    from . import gui
-    import flet as ft
-    database.init_db()
-    ft.app(target=gui.main)
 
 @cli.command(name="gui-qt")
 def gui_qt():

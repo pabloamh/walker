@@ -235,6 +235,33 @@ With these steps completed, the application will be fully functional without req
 
 The application has multiple sub-commands.
 
+### Interfaces: CLI and GUI
+
+Wanderer offers two ways to interact with its features: a powerful Command-Line Interface (CLI) and a user-friendly Graphical User Interface (GUI).
+
+#### Command-Line Interface (CLI)
+
+The CLI is the primary and most powerful way to use Wanderer. It is ideal for:
+*   Running large-scale indexing jobs.
+*   Automating tasks and scripting workflows.
+*   Generating detailed reports (`find-dupes`, `type-summary`, etc.).
+*   Performing headless operations on a server.
+
+All indexing, refinement, and reporting commands are available through the CLI.
+
+#### Graphical User Interface (GUI)
+
+The GUI provides a visual and interactive way to manage Wanderer. It is perfect for:
+*   Easily starting, stopping, and monitoring scan jobs.
+*   Viewing scan history and progress at a glance.
+*   Managing application settings through a user-friendly form.
+*   Checking the status of offline models and downloading them with a click.
+
+To launch the GUI, run:
+```sh
+poetry run python -m wanderer.main gui-qt
+```
+
 ### Indexing Files
 
 To scan a directory and build or update your index, use the `index` command.
@@ -297,7 +324,7 @@ Performs a powerful semantic search across the content of all indexed text files
 
 ```sh
 # Search for a concept and get the top 5 results
-poetry run python -m walker.main search "financial results for the last quarter" --limit 5
+poetry run python -m wanderer.main search "financial results" --limit 5
 ```
 
 #### List Largest Files

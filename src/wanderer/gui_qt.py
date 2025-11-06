@@ -1,5 +1,4 @@
 import sys
-import threading
 from pathlib import Path
 from datetime import datetime
 import multiprocessing
@@ -375,6 +374,28 @@ class SettingsViewWidget(QWidget):
 
 #</editor-fold>
 
+#<editor-fold desc="Generic Worker">
+class GenericWorker(QObject):
+    """A generic worker that can run any function with arguments."""
+    finished = Signal(object)  # Emits the return value of the function
+    error = Signal(str)
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+    @Slot()
+    def run(self):
+        """Executes the function and emits the result or an error."""
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+#</editor-fold>
+
 #<editor-fold desc="Scan and Refine Workers">
 class ScanWorker(QObject):
     """Worker to run the main indexing job."""
@@ -588,47 +609,61 @@ class ScanViewWidget(QWidget):
             use_fido=refine_type == "fido",
         )
 
-        # Create a worker for refinement
-        class RefineWorker(QObject):
-            finished = Signal(str)
-            def __init__(self, refine_config, refine_type):
-                super().__init__()
-                self.refine_config = refine_config
-                self.refine_type = refine_type
-            
-            @Slot()
-            def run(self):
-                idx = indexer.Indexer(root_paths=(), workers=self.refine_config.workers, memory_limit_gb=self.refine_config.memory_limit_gb, exclude_paths=(), app_config=self.refine_config)
-                try:
-                    if self.refine_type == "fido":
-                        idx.refine_unknown_files()
-                    elif self.refine_type == "text":
-                        idx.refine_text_content()
-                    self.finished.emit(f"{self.refine_type.capitalize()} refinement finished successfully.")
-                except Exception as e:
-                    self.finished.emit(f"{self.refine_type.capitalize()} refinement failed: {e}")
-        
+        # Define the function to be run in the background
+        def refine_task(idx_instance, task_type):
+            if task_type == "fido":
+                idx_instance.refine_unknown_files()
+                return "Fido refinement finished successfully."
+            elif task_type == "text":
+                idx_instance.refine_text_content()
+                return "Text refinement finished successfully."
+            return "Unknown refinement task."
+
+        idx = indexer.Indexer(root_paths=(), workers=refine_config.workers, memory_limit_gb=refine_config.memory_limit_gb, exclude_paths=(), app_config=refine_config)
+
         self.active_thread = QThread(self)
-        worker = RefineWorker(refine_config, refine_type)
+        # Use the GenericWorker
+        worker = GenericWorker(refine_task, idx, refine_type)
         worker.moveToThread(self.active_thread)
-        worker.finished.connect(lambda msg: QMessageBox.information(self, "Refinement Status", msg))
-        worker.finished.connect(lambda: self.refine_fido_button.setDisabled(not self.app_config.use_fido))
-        worker.finished.connect(lambda: self.refine_text_button.setDisabled(False))
+
+        def on_refine_finished(message):
+            QMessageBox.information(self, "Refinement Status", message)
+            self.refine_fido_button.setDisabled(not self.app_config.use_fido)
+            self.refine_text_button.setDisabled(False)
+            self.active_thread.quit()
+            self.active_thread.wait()
+
+        worker.finished.connect(on_refine_finished)
+        worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))
+
         self.active_thread.started.connect(worker.run)
         self.active_thread.start()
 
     def refresh_scan_history(self):
-        self.scan_history_list.clear()
-        with database.get_session() as db:
-            logs = db.query(models.ScanLog).order_by(models.ScanLog.start_time.desc()).limit(50).all()
-        
-        if not logs:
-            self.scan_history_list.addItem("No scan history found.")
-        else:
-            for log in logs:
-                end_time_str = log.end_time.strftime('%Y-%m-%d %H:%M:%S') if log.end_time else "In Progress"
-                item_text = f"[{log.status.upper()}] {log.start_time.strftime('%Y-%m-%d %H:%M:%S')} -> {end_time_str} ({log.files_scanned} files)"
-                self.scan_history_list.addItem(item_text)
+        """Fetches scan history in a background thread to keep the GUI responsive."""
+        def get_history():
+            with database.get_session() as db:
+                return db.query(models.ScanLog).order_by(models.ScanLog.start_time.desc()).limit(50).all()
+
+        @Slot(object)
+        def on_history_loaded(logs):
+            self.scan_history_list.clear()
+            if not logs:
+                self.scan_history_list.addItem("No scan history found.")
+            else:
+                for log in logs:
+                    end_time_str = log.end_time.strftime('%Y-%m-%d %H:%M:%S') if log.end_time else "In Progress"
+                    item_text = f"[{log.status.upper()}] {log.start_time.strftime('%Y-%m-%d %H:%M:%S')} -> {end_time_str} ({log.files_scanned} files)"
+                    self.scan_history_list.addItem(item_text)
+            self.active_thread.quit()
+            self.active_thread.wait()
+
+        self.active_thread = QThread(self)
+        worker = GenericWorker(get_history)
+        worker.moveToThread(self.active_thread)
+        worker.finished.connect(on_history_loaded)
+        self.active_thread.started.connect(worker.run)
+        self.active_thread.start()
 
 class SearchViewWidget(QWidget):
     def __init__(self, app_config: config.Config):

@@ -24,7 +24,6 @@ pymediainfo = "^7.0.1"
 tinytag = "^2.1.2"
 spacy = "^3.8.7"
 presidio-analyzer = "^2.2.360"
-presidio-anonymizer = "^2.2.360"
 odfpy = "^1.4.1"
 sphinx = "^8.2.3"
 furo = "^2025.9.25"
@@ -35,6 +34,8 @@ opf-fido = "^1.6.1"
 flet = "^0.28.3"
 tomli-w = "^1.2.0"
 pyside6 = "^6.10.0"
+orjson = "^3.11.4"
+pillow = "^12.0.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -47,5 +48,6 @@ dev = [
     "sphinx-click (>=6.1.0,<7.0.0)",
     "myst-parser (>=4.0.1,<5.0.0)",
     "pytest (>=8.4.2,<9.0.0)",
-    "pytest-cov (>=7.0.0,<8.0.0)"
+    "pytest-cov (>=7.0.0,<8.0.0)",
+    "deptry (>=0.23.1,<0.24.0)"
 ]

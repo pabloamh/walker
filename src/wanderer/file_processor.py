@@ -3,7 +3,6 @@ import email
 import logging
 import functools
 import warnings
-import hashlib
 import json
 import os
 import subprocess
@@ -11,6 +10,8 @@ import tarfile
 import zipfile
 import tempfile
 from typing import Optional, Tuple, Any, Union, List, Generator
+import hashlib
+import orjson
 
 import imagehash
 from bs4 import BeautifulSoup
@@ -144,7 +145,7 @@ class FileProcessor:
                 else:
                     decoded_exif[str(tag_name)] = value
             
-            return json.dumps(decoded_exif, default=str)
+            return orjson.dumps(decoded_exif, default=str).decode('utf-8')
         except Exception:
             return None
 
@@ -179,7 +180,7 @@ class FileProcessor:
                 "format": video_track.format,
                 "audio_codec": audio_track.format if audio_track else None,
             }
-            return json.dumps(video_data, default=str)
+            return orjson.dumps(video_data, default=str).decode('utf-8')
         except Exception:
             return None
 
@@ -198,7 +199,7 @@ class FileProcessor:
                 "genre": tag.genre,
                 "bitrate_kbps": tag.bitrate,
             }
-            return json.dumps({k: v for k, v in audio_data.items() if v is not None})
+            return orjson.dumps({k: v for k, v in audio_data.items() if v is not None}).decode('utf-8')
         except Exception:
             return None
 
@@ -231,7 +232,7 @@ class FileProcessor:
             logging.warning(f"Could not process archive {self.file_path}: {e}")
             return # Stop processing this archive if an error occurs
     
-    def _run_pii_analysis(self, content: Optional[str] = None) -> Optional[List[str]]:
+    def _run_pii_analysis(self, pii_languages: List[str], content: Optional[str] = None) -> Optional[List[str]]:
         """
         Analyzes text for PII. If content is provided, it analyzes that.
         If content is None, it reads the file in chunks for memory efficiency.
@@ -243,7 +244,7 @@ class FileProcessor:
             if content:
                 # If content is already in memory, analyze it directly (truncated).
                 truncated_content = content[:1_000_000]
-                for lang in self.pii_languages:
+                for lang in pii_languages:
                     pii_results = pii_analyzer.analyze(text=truncated_content, language=lang)
                     found_pii_types.update(p.entity_type for p in pii_results)
             elif self.mime_type and "text" in self.mime_type:
@@ -254,7 +255,7 @@ class FileProcessor:
                         chunk = f.read(chunk_size)
                         if not chunk:
                             break
-                        for lang in self.pii_languages:
+                        for lang in pii_languages:
                             pii_results = pii_analyzer.analyze(text=chunk, language=lang)
                             if pii_results:
                                 found_pii_types.update(p.entity_type for p in pii_results)
@@ -465,10 +466,10 @@ class FileProcessor:
                 # --- PII Detection (Optimized) ---
                 if metadata_kwargs["content"]:
                     # For smaller files where content was already extracted, analyze the content directly.
-                    metadata_kwargs["pii_types"] = self._run_pii_analysis(content=metadata_kwargs["content"])
+                    metadata_kwargs["pii_types"] = self._run_pii_analysis(self.pii_languages, content=metadata_kwargs["content"])
                 # For text files where content wasn't loaded (e.g., too large), use chunked scan.
                 elif self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 0:
-                    metadata_kwargs["pii_types"] = self._run_pii_analysis()
+                    metadata_kwargs["pii_types"] = self._run_pii_analysis(self.pii_languages)
 
             yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:
