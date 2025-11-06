@@ -6,17 +6,20 @@ import tomllib
 
 import spacy
 from PySide6.QtCore import QObject, QThread, Signal, Slot, QFile
+from PySide6.QtGui import QPalette
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFormLayout,
-                               QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow,
+                               QGroupBox, QHBoxLayout, QLabel, QLineEdit, QHeaderView, QTextBrowser,
+                               QListWidget, QListWidgetItem, QMainWindow, QTreeWidget, QTreeWidgetItem,
                                QMessageBox, QProgressBar, QPushButton,
                                QSpinBox, QStackedWidget, QTabWidget, QSpacerItem, QSizePolicy,
-                               QVBoxLayout, QWidget, QDoubleSpinBox,
+                               QVBoxLayout, QWidget, QDoubleSpinBox, QTextEdit, QTableWidget, QTableWidgetItem,
                                QFileDialog)
 
 import attrs
 from . import config, database, download_assets, indexer, models
+from .main import format_bytes
+from .reporter import Reporter
 
 #<editor-fold desc="Asset Check and Download Workers">
 class AssetCheckWorker(QObject):
@@ -25,6 +28,7 @@ class AssetCheckWorker(QObject):
     freezing the GUI. It communicates its findings via signals.
     """
     # Signal format: asset_name, status_text, color, is_downloaded
+    checking_asset = Signal(str)
     status_updated = Signal(str, str, str, bool)
     finished = Signal()
 
@@ -39,6 +43,7 @@ class AssetCheckWorker(QObject):
         models_dir = script_dir / "models"
 
         # 1. Check Embedding Model
+        self.checking_asset.emit("embedding")
         model_path = script_dir / (self.app_config.embedding_model_path or "models/all-MiniLM-L6-v2")
         embedding_ok = model_path.is_dir()
         self.status_updated.emit(
@@ -47,6 +52,7 @@ class AssetCheckWorker(QObject):
         )
 
         # 2. Check PII (spaCy) Models
+        self.checking_asset.emit("pii")
         pii_ok = True
         for lang in self.app_config.pii_languages:
             model_name = config.get_spacy_model_name(lang)
@@ -54,11 +60,12 @@ class AssetCheckWorker(QObject):
                 pii_ok = False
                 break
         self.status_updated.emit(
-            "pii", "Available" if pii_ok else "Missing",
+            "pii", "Available" if pii_ok else "Not Found",
             "green" if pii_ok else "orange", pii_ok
         )
 
         # 3. Check Fido Signatures
+        self.checking_asset.emit("fido")
         fido_sig_path = models_dir / "fido_cache" / "DROID_SignatureFile.xml"
         fido_ok = fido_sig_path.is_file()
         self.status_updated.emit(
@@ -120,39 +127,42 @@ class OfflineAssetsWidget(QWidget):
         form_layout = QFormLayout()
         group_box.setLayout(form_layout)
 
+        # --- Controls ---
+        controls_layout = QHBoxLayout()
+        self.check_assets_button = QPushButton("Check Asset Status")
+        self.check_assets_button.clicked.connect(self.run_asset_check)
+        controls_layout.addWidget(self.check_assets_button)
+        controls_layout.addStretch()
+        main_layout.addLayout(controls_layout)
+
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Indeterminate
-        self.progress_bar.setTextVisible(False)
-        main_layout.insertWidget(0, self.progress_bar)
+        self.progress_bar.setRange(0, 3) # 3 assets to check
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
 
         # --- Widgets for each asset ---
-        self.embedding_status_label = QLabel("Checking...")
+        self.embedding_status_label = QLabel("Unknown")
         self.embedding_download_button = QPushButton("Download")
         self.embedding_download_button.clicked.connect(lambda: self.start_download("embedding"))
         form_layout.addRow("Semantic Search Model:", self._create_asset_row(self.embedding_status_label, self.embedding_download_button))
 
-        self.pii_status_label = QLabel("Checking...")
+        self.pii_status_label = QLabel("Unknown")
         self.pii_download_button = QPushButton("Download")
         self.pii_download_button.clicked.connect(lambda: self.start_download("pii"))
         form_layout.addRow(f"PII Models ({','.join(self.app_config.pii_languages)}):", self._create_asset_row(self.pii_status_label, self.pii_download_button))
 
-        self.fido_status_label = QLabel("Checking...")
+        self.fido_status_label = QLabel("Unknown")
         self.fido_download_button = QPushButton("Download")
         self.fido_download_button.clicked.connect(lambda: self.start_download("fido"))
         form_layout.addRow("Fido/PRONOM Signatures:", self._create_asset_row(self.fido_status_label, self.fido_download_button))
 
-        # Store widgets in a dict for easy access
-        self.asset_widgets = {
-            "embedding": (self.embedding_status_label, self.embedding_download_button),
-            "pii": (self.pii_status_label, self.pii_download_button),
-            "fido": (self.fido_status_label, self.fido_download_button),
-        }
-
         # Keep track of the currently running thread to prevent multiple operations
         self.active_thread = None
+        self.worker = None
 
-        # Start the initial check
-        self.run_asset_check()
+        # Set initial state
+        self.on_check_finished()
 
     def _create_asset_row(self, status_label: QLabel, download_button: QPushButton) -> QWidget:
         """Helper to create a consistent layout for each asset row."""
@@ -170,21 +180,43 @@ class OfflineAssetsWidget(QWidget):
         Sets up and starts the background thread for checking asset status.
         """
         self.progress_bar.setVisible(True)
-        for _, button in self.asset_widgets.values():
+        self.progress_bar.setValue(0) # Reset progress bar
+        self.check_assets_button.setDisabled(True)
+
+        for _, button in self._get_asset_widgets().values():
             button.setEnabled(False)
 
         # 1. Create a worker and a thread
         self.active_thread = QThread(self)
-        worker = AssetCheckWorker(self.app_config)
-        worker.moveToThread(self.active_thread)
+        self.worker = AssetCheckWorker(self.app_config)
+        self.worker.moveToThread(self.active_thread)
 
         # 2. Connect signals from the worker to slots in this widget
-        worker.status_updated.connect(self.on_status_updated)
-        worker.finished.connect(self.on_check_finished) # Use a specific slot for check finished
-        self.active_thread.started.connect(worker.run)
+        self.worker.checking_asset.connect(self.on_checking_asset)
+        self.worker.status_updated.connect(self.on_status_updated)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
+        self.worker.finished.connect(self.on_check_finished) # Use a specific slot for check finished
+        self.active_thread.started.connect(self.worker.run)
 
         # 3. Start the thread
         self.active_thread.start()
+
+    def _get_asset_widgets(self):
+        """Helper to get a fresh dictionary of asset widgets."""
+        return {
+            "embedding": (self.embedding_status_label, self.embedding_download_button),
+            "pii": (self.pii_status_label, self.pii_download_button),
+            "fido": (self.fido_status_label, self.fido_download_button),
+        }
+
+    @Slot(str)
+    def on_checking_asset(self, asset_name: str):
+        """Updates the UI to show which asset is currently being checked."""
+        status_label, _ = self._get_asset_widgets()[asset_name]
+        status_label.setText("Checking...")
+        self.progress_bar.setValue(self.progress_bar.value() + 1)
+        status_label.setStyleSheet("color: gray; font-style: italic;")
 
     @Slot(str, str, str, bool)
     def on_status_updated(self, asset_name: str, status_text: str, color: str, is_downloaded: bool):
@@ -192,7 +224,7 @@ class OfflineAssetsWidget(QWidget):
         This slot is executed on the main GUI thread when the worker emits a
         status_updated signal.
         """
-        status_label, download_button = self.asset_widgets[asset_name]
+        status_label, download_button = self._get_asset_widgets()[asset_name]
         status_label.setText(status_text)
         status_label.setStyleSheet(f"color: {color}; font-style: normal;")
 
@@ -206,7 +238,7 @@ class OfflineAssetsWidget(QWidget):
     @Slot(str, str)
     def on_download_progress(self, asset_name: str, progress_text: str):
         """Updates the status label for the specific asset during download."""
-        status_label, _ = self.asset_widgets[asset_name]
+        status_label, _ = self._get_asset_widgets()[asset_name]
         status_label.setText(progress_text)
         status_label.setStyleSheet("font-style: italic; color: blue;")
 
@@ -215,36 +247,37 @@ class OfflineAssetsWidget(QWidget):
         """
         This slot is executed on the main GUI thread when the check worker is done.
         """
+        self.check_assets_button.setDisabled(False)
         self.progress_bar.setVisible(False)
-        # Clean up the thread
-        if self.active_thread:
-            self.active_thread.quit()
-            self.active_thread.wait()
-            # It's good practice to delete the worker and thread objects
-            # when they are no longer needed, especially if they are parented
-            # to the widget.
-            self.active_thread.deleteLater()
-            self.active_thread = None
+        self.progress_bar.setValue(0)
+        # Re-enable download buttons for assets that are not downloaded
+        for asset_name, (status_label, button) in self._get_asset_widgets().items():
+            button.setEnabled(status_label.text() not in ["Available", "Downloaded"])
+
+        self.active_thread = None
+        self.worker = None
 
     def start_download(self, asset_type: str):
         """
         Sets up and starts a background thread for downloading an asset.
         """
         self.progress_bar.setVisible(True)
-        for _, button in self.asset_widgets.values():
+        for _, button in self._get_asset_widgets().values():
             button.setEnabled(False)
 
         # 1. Create a worker and a thread
         self.active_thread = QThread(self)
-        worker = AssetDownloadWorker(self.app_config, asset_type)
-        worker.moveToThread(self.active_thread)
+        self.worker = AssetDownloadWorker(self.app_config, asset_type)
+        self.worker.moveToThread(self.active_thread)
 
         # 2. Connect signals
-        worker.progress.connect(self.on_download_progress)
+        self.worker.progress.connect(self.on_download_progress)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
         # When download finishes, clean up and re-run the check.
-        worker.finished.connect(self.on_check_finished) # Use the check finished slot for cleanup
-        worker.finished.connect(self.run_asset_check)
-        self.active_thread.started.connect(worker.run)
+        self.worker.finished.connect(self.on_check_finished) # Use the check finished slot for cleanup
+        self.worker.finished.connect(self.run_asset_check)
+        self.active_thread.started.connect(self.worker.run)
 
         # 3. Start the thread
         self.active_thread.start()
@@ -255,19 +288,17 @@ class SettingsViewWidget(QWidget):
     """
     A widget for managing application settings.
     """
+    settings_saved = Signal()
     def __init__(self, app_config: config.Config, config_path: Path | None):
         super().__init__()
         self.app_config = app_config
         self.config_path = config_path
 
         # --- Load UI from .ui file ---
-        ui_file_path = Path(__file__).parent / "ui" / "settings_view.ui"
+        ui_file_path = Path(__file__).parent / "settings_view.ui"
         loader = QUiLoader()
-        ui_file = QFile(ui_file_path)
-        ui_file.open(QFile.ReadOnly)
         # The first argument to load is the .ui file, the second is the parent widget (self)
-        self.ui = loader.load(ui_file, self)
-        ui_file.close()
+        self.ui = loader.load(str(ui_file_path), self)
 
         # --- Set up layout ---
         layout = QVBoxLayout(self)
@@ -298,7 +329,6 @@ class SettingsViewWidget(QWidget):
         self.ui.add_scan_dir_button.clicked.connect(self.add_scan_dir)
         self.ui.add_exclude_dir_button.clicked.connect(self.add_excluded_dir)
         self.ui.save_settings_button.clicked.connect(self.save_settings)
-        self.ui.save_settings_button.setDisabled(self.config_path is None)
         
         # Offline Assets Widget
         self.offline_assets_widget = OfflineAssetsWidget(self.app_config)
@@ -354,22 +384,41 @@ class SettingsViewWidget(QWidget):
         self.app_config.pii_languages = [lang.strip() for lang in self.pii_languages_field.text().split(',') if lang.strip()]
         self.app_config.archive_exclude_extensions = [ext.strip() for ext in self.archive_excludes_field.text().split(',') if ext.strip()]
 
-        if self.config_path:
-            try:
-                with open(self.config_path, "rb") as f:
+        config_to_save_path = self.config_path
+
+        # If no config file exists, prompt the user to create one.
+        if not config_to_save_path:
+            dialog = QFileDialog()
+            file_path, _ = dialog.getSaveFileName(self, "Save Configuration File", "wanderer.toml", "TOML Files (*.toml)")
+            
+            if not file_path:
+                return  # User cancelled
+            
+            config_to_save_path = Path(file_path)
+            self.config_path = config_to_save_path # Update path for this widget
+            self.ui.config_path_label.setText(f"Editing: {self.config_path}")
+
+        try:
+            # If the config file doesn't exist, create it.
+            if not config_to_save_path.exists():
+                config_to_save_path.parent.mkdir(parents=True, exist_ok=True)
+                full_toml = {} # Start with an empty TOML structure
+            else:
+                with open(config_to_save_path, "rb") as f:
                     full_toml = tomllib.load(f)
-                
-                if "tool" not in full_toml:
-                    full_toml["tool"] = {}
-                if "wanderer" not in full_toml["tool"]:
-                    full_toml["tool"]["wanderer"] = {}
-                
-                full_toml["tool"]["wanderer"] = config.config_to_dict(self.app_config)
-                config.save_config_to_path(full_toml, self.config_path)
-                QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully!")
-                self.offline_assets_widget.run_asset_check() # Re-check asset status after saving settings
-            except Exception as ex:
-                QMessageBox.critical(self, "Error Saving Settings", f"Failed to save settings: {ex}")
+            
+            if "tool" not in full_toml:
+                full_toml["tool"] = {}
+            if "wanderer" not in full_toml["tool"]:
+                full_toml["tool"]["wanderer"] = {}
+            
+            full_toml["tool"]["wanderer"] = config.config_to_dict(self.app_config)
+            config.save_config_to_path(full_toml, config_to_save_path)
+            QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully!")
+            self.settings_saved.emit()
+            self.offline_assets_widget.run_asset_check() # Re-check asset status after saving settings
+        except Exception as ex:
+            QMessageBox.critical(self, "Error Saving Settings", f"Failed to save settings: {ex}")
 
 
 #</editor-fold>
@@ -410,7 +459,7 @@ class ScanWorker(QObject):
     @Slot()
     def run(self):
         def progress_callback(value, total, description):
-            self.progress.emit(value, total, description)
+            self.progress.emit(value, total or 0, description)
 
         idx = indexer.Indexer(
             root_paths=tuple(self.selected_paths),
@@ -433,6 +482,7 @@ class ScanViewWidget(QWidget):
     def __init__(self, app_config: config.Config):
         super().__init__()
         self.app_config = app_config
+        self.worker = None
         self.active_thread = None
 
         # Main layout for the Scan View
@@ -528,6 +578,38 @@ class ScanViewWidget(QWidget):
 
         self.refresh_scan_history()
 
+    def refresh_view(self, new_config: config.Config):
+        """
+        Updates the entire scan view based on the current app_config.
+        This is called when settings are saved elsewhere in the application.
+        """
+        self.app_config = new_config
+        # Refresh scan option checkboxes
+
+        self.scan_option_text.setChecked(self.app_config.extract_text_on_scan)
+        self.scan_option_phash.setChecked(self.app_config.compute_perceptual_hash)
+        self.scan_option_fido.setChecked(self.app_config.use_fido)
+        self.refine_fido_button.setDisabled(not self.app_config.use_fido)
+
+        # Refresh the list of scannable directories
+        # Clear existing widgets from the layout
+        while self.scan_targets_layout.count():
+            child = self.scan_targets_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        self.scan_target_checkboxes = []
+        if self.app_config.scan_dirs:
+            for d in self.app_config.scan_dirs:
+                cb = QCheckBox(d)
+                cb.setChecked(True)
+                self.scan_targets_layout.addWidget(cb)
+                self.scan_target_checkboxes.append(cb)
+            self.start_scan_button.setDisabled(False)
+        else:
+            self.scan_targets_layout.addWidget(QLabel("No scan directories configured in Settings."))
+            self.start_scan_button.setDisabled(True)
+
     def set_scan_ui_state(self, is_scanning: bool, message: str = ""):
         """Toggles the UI between scanning and idle states."""
         self.start_scan_button.setVisible(not is_scanning)
@@ -565,13 +647,13 @@ class ScanViewWidget(QWidget):
         )
 
         self.active_thread = QThread(self)
-        worker = ScanWorker(scan_config, selected_paths)
-        worker.moveToThread(self.active_thread)
+        self.worker = ScanWorker(scan_config, selected_paths)
+        self.worker.moveToThread(self.active_thread)
 
-        worker.progress.connect(self.on_scan_progress)
+        self.worker.progress.connect(self.on_scan_progress)
         self.stop_scan_button.clicked.connect(self.active_thread.requestInterruption) # Allow stopping scan
-        worker.finished.connect(self.on_scan_finished)
-        self.active_thread.started.connect(worker.run)
+        self.worker.finished.connect(self.on_scan_finished)
+        self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
 
     @Slot(int, int, str)
@@ -587,12 +669,9 @@ class ScanViewWidget(QWidget):
     def on_scan_finished(self, message):
         self.set_scan_ui_state(False, message)
         self.refresh_scan_history()
-        if self.active_thread:
-            self.active_thread.quit()
-            self.active_thread.wait()
-            self.active_thread.deleteLater()
-            self.active_thread = None
 
+        self.worker = None
+        self.active_thread = None
     def start_refine(self, refine_type: str):
         # Disable buttons and show progress (similar to scan)
         self.refine_fido_button.setDisabled(True)
@@ -623,20 +702,20 @@ class ScanViewWidget(QWidget):
 
         self.active_thread = QThread(self)
         # Use the GenericWorker
-        worker = GenericWorker(refine_task, idx, refine_type)
-        worker.moveToThread(self.active_thread)
+        self.worker = GenericWorker(refine_task, idx, refine_type)
+        self.worker.moveToThread(self.active_thread)
 
         def on_refine_finished(message):
             QMessageBox.information(self, "Refinement Status", message)
             self.refine_fido_button.setDisabled(not self.app_config.use_fido)
             self.refine_text_button.setDisabled(False)
             self.active_thread.quit()
-            self.active_thread.wait()
+            self.active_thread.wait() # type: ignore
 
-        worker.finished.connect(on_refine_finished)
-        worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))
+        self.worker.finished.connect(on_refine_finished)
+        self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))
 
-        self.active_thread.started.connect(worker.run)
+        self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
 
     def refresh_scan_history(self):
@@ -659,10 +738,10 @@ class ScanViewWidget(QWidget):
             self.active_thread.wait()
 
         self.active_thread = QThread(self)
-        worker = GenericWorker(get_history)
-        worker.moveToThread(self.active_thread)
-        worker.finished.connect(on_history_loaded)
-        self.active_thread.started.connect(worker.run)
+        self.worker = GenericWorker(get_history)
+        self.worker.moveToThread(self.active_thread)
+        self.worker.finished.connect(on_history_loaded)
+        self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
 
 class SearchViewWidget(QWidget):
@@ -675,20 +754,284 @@ class SearchViewWidget(QWidget):
         layout.addWidget(QPushButton("Search"))
         layout.addStretch()
 
+
 class ReportsViewWidget(QWidget):
     def __init__(self, app_config: config.Config):
         super().__init__()
         self.app_config = app_config
+        self.worker = None
+        self.active_thread = None
+
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Reports (Not yet implemented)"))
-        layout.addStretch()
+        tab_widget = QTabWidget()
+        layout.addWidget(tab_widget)
+
+        # --- Type Summary Tab ---
+        type_summary_tab = QWidget()
+        type_summary_layout = QVBoxLayout(type_summary_tab)
+        self.run_type_summary_button = QPushButton("Run Type Summary Report")
+        self.run_type_summary_button.clicked.connect(self.run_type_summary)
+        self.type_summary_table = QTableWidget()
+        self.type_summary_table.setColumnCount(3)
+        self.type_summary_table.setHorizontalHeaderLabels(["MIME Type", "File Count", "Total Size"])
+        self.type_summary_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.type_summary_table.setSortingEnabled(True)
+        type_summary_layout.addWidget(self.run_type_summary_button)
+        type_summary_layout.addWidget(self.type_summary_table)
+        tab_widget.addTab(type_summary_tab, "File Type Summary")
+
+        # --- Largest Files Tab ---
+        largest_files_tab = QWidget()
+        largest_files_layout = QVBoxLayout(largest_files_tab)
+        largest_files_controls = QHBoxLayout()
+        largest_files_controls.addWidget(QLabel("Number of files to show:"))
+        self.largest_files_limit = QSpinBox()
+        self.largest_files_limit.setRange(1, 1000)
+        self.largest_files_limit.setValue(25)
+        self.run_largest_files_button = QPushButton("Find Largest Files")
+        self.run_largest_files_button.clicked.connect(self.run_largest_files)
+        largest_files_controls.addWidget(self.largest_files_limit)
+        largest_files_controls.addWidget(self.run_largest_files_button)
+        largest_files_controls.addStretch()
+        self.largest_files_table = QTableWidget()
+        self.largest_files_table.setColumnCount(2)
+        self.largest_files_table.setHorizontalHeaderLabels(["Size", "Path"])
+        self.largest_files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.largest_files_table.setSortingEnabled(True)
+        largest_files_layout.addLayout(largest_files_controls)
+        largest_files_layout.addWidget(self.largest_files_table)
+        tab_widget.addTab(largest_files_tab, "Largest Files")
+
+        # --- PII Files Tab ---
+        pii_files_tab = QWidget()
+        pii_files_layout = QVBoxLayout(pii_files_tab)
+        self.run_pii_files_button = QPushButton("List Files with PII")
+        self.run_pii_files_button.clicked.connect(self.run_pii_files)
+        self.pii_files_table = QTableWidget()
+        self.pii_files_table.setColumnCount(2)
+        self.pii_files_table.setHorizontalHeaderLabels(["File Path", "PII Types Found"])
+        self.pii_files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pii_files_table.setSortingEnabled(True)
+        pii_files_layout.addWidget(self.run_pii_files_button)
+        pii_files_layout.addWidget(self.pii_files_table)
+        tab_widget.addTab(pii_files_tab, "PII Report")
+
+        # --- Find Duplicates Tab ---
+        dupes_tab = QWidget()
+        self.dupes_layout = QVBoxLayout(dupes_tab)
+        self.run_dupes_button = QPushButton("Find Duplicate Files")
+        self.run_dupes_button.clicked.connect(self.run_dupes_report)
+        self.dupes_tree = QTreeWidget()
+        self.dupes_tree.setHeaderLabels(["File Path", "Size"])
+        self.dupes_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.dupes_layout.addWidget(self.run_dupes_button)
+        self.dupes_layout.addWidget(self.dupes_tree)
+        tab_widget.addTab(dupes_tab, "Duplicate Files")
+
+        # --- PRONOM Summary Tab ---
+        pronom_tab = QWidget()
+        self.pronom_layout = QVBoxLayout(pronom_tab)
+        self.run_pronom_button = QPushButton("Run PRONOM Summary Report")
+        self.run_pronom_button.clicked.connect(self.run_pronom_report)
+        self.pronom_table = QTableWidget()
+        self.pronom_table.setColumnCount(3)
+        self.pronom_table.setHorizontalHeaderLabels(["PRONOM ID", "File Count", "Total Size"])
+        self.pronom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pronom_table.setSortingEnabled(True)
+        self.pronom_layout.addWidget(self.run_pronom_button)
+        self.pronom_layout.addWidget(self.pronom_table)
+        tab_widget.addTab(pronom_tab, "PRONOM Summary")
+
+        # --- Similar Images Tab ---
+        similar_images_tab = QWidget()
+        similar_images_layout = QVBoxLayout(similar_images_tab)
+        similar_images_controls = QHBoxLayout()
+        similar_images_controls.addWidget(QLabel("Similarity Threshold (0=exact, higher is less strict):"))
+        self.image_threshold_spinbox = QSpinBox()
+        self.image_threshold_spinbox.setRange(0, 64)
+        self.image_threshold_spinbox.setValue(4)
+        self.run_similar_images_button = QPushButton("Find Similar Images")
+        self.run_similar_images_button.clicked.connect(self.run_similar_images_report)
+        similar_images_controls.addWidget(self.image_threshold_spinbox)
+        similar_images_controls.addWidget(self.run_similar_images_button)
+        similar_images_controls.addStretch()
+        self.similar_images_tree = QTreeWidget()
+        self.similar_images_tree.setHeaderLabels(["File Path", ""])
+        self.similar_images_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        similar_images_layout.addLayout(similar_images_controls)
+        similar_images_layout.addWidget(self.similar_images_tree)
+        tab_widget.addTab(similar_images_tab, "Similar Images")
+
+        # --- Similar Text Tab (Placeholder) ---
+        similar_text_tab = QWidget()
+        similar_text_layout = QVBoxLayout(similar_text_tab)
+        similar_text_layout.addWidget(QLabel("Similar Text Report (Not yet implemented)"))
+        tab_widget.addTab(similar_text_tab, "Similar Text")
+
+    def _run_report(self, report_function, on_finish_slot, *args, **kwargs):
+        """Generic method to run a report in a background thread."""
+        self.active_thread = QThread(self)
+        self.worker = GenericWorker(report_function, *args, **kwargs)
+        self.worker.moveToThread(self.active_thread)
+        self.worker.finished.connect(on_finish_slot)
+        self.worker.finished.connect(self.active_thread.quit)
+        self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Report Error", msg))
+        self.active_thread.started.connect(self.worker.run)
+        self.active_thread.start()
+
+    def run_type_summary(self):
+        self.run_type_summary_button.setDisabled(True)
+        self.type_summary_table.setRowCount(0)
+        reporter = Reporter()
+        self._run_report(reporter.type_summary, self.on_type_summary_finished, print_output=False)
+
+    @Slot(object)
+    def on_type_summary_finished(self, summary_data):
+        self.type_summary_table.setRowCount(len(summary_data))
+        for row, (mime_type, count, total_size) in enumerate(summary_data):
+            self.type_summary_table.setItem(row, 0, QTableWidgetItem(mime_type))
+            count_item = QTableWidgetItem()
+            count_item.setData(0, count) # Store as number for sorting
+            self.type_summary_table.setItem(row, 1, count_item) # type: ignore
+            self.type_summary_table.setItem(row, 2, QTableWidgetItem(format_bytes(total_size or 0)))
+        self.type_summary_table.resizeColumnsToContents()
+        self.type_summary_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.run_type_summary_button.setDisabled(False)
+
+    def run_largest_files(self):
+        self.run_largest_files_button.setDisabled(True)
+        self.largest_files_table.setRowCount(0)
+        limit = self.largest_files_limit.value()
+        reporter = Reporter()
+        self._run_report(reporter.largest_files, self.on_largest_files_finished, limit, print_output=False)
+
+    @Slot(object)
+    def on_largest_files_finished(self, files_data):
+        self.largest_files_table.setRowCount(len(files_data))
+        for row, file in enumerate(files_data or []):
+            size_item = QTableWidgetItem(format_bytes(file.size_bytes))
+            size_item.setData(0, file.size_bytes) # Store raw bytes for sorting
+            self.largest_files_table.setItem(row, 0, size_item)
+            self.largest_files_table.setItem(row, 1, QTableWidgetItem(file.path))
+        self.largest_files_table.resizeColumnsToContents()
+        self.largest_files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.run_largest_files_button.setDisabled(False)
+
+    def run_pii_files(self):
+        self.run_pii_files_button.setDisabled(True)
+        self.pii_files_table.setRowCount(0)
+        reporter = Reporter()
+        self._run_report(reporter.list_pii_files, self.on_pii_files_finished, print_output=False)
+
+    @Slot(object)
+    def on_pii_files_finished(self, pii_data):
+        self.pii_files_table.setRowCount(len(pii_data))
+        for row, file in enumerate(pii_data or []):
+            self.pii_files_table.setItem(row, 0, QTableWidgetItem(file.path))
+            self.pii_files_table.setItem(row, 1, QTableWidgetItem(", ".join(file.pii_types)))
+        self.pii_files_table.resizeColumnsToContents()
+        self.pii_files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.run_pii_files_button.setDisabled(False)
+
+    def run_dupes_report(self):
+        self.run_dupes_button.setDisabled(True)
+        self.dupes_tree.clear()
+        reporter = Reporter()
+        self._run_report(reporter.find_dupes, self.on_dupes_finished, print_output=False)
+
+    @Slot(object)
+    def on_dupes_finished(self, dupes_data):
+        for i, (hash_val, files) in enumerate(dupes_data):
+            source_file = files[0]
+            group_item = QTreeWidgetItem(self.dupes_tree, [f"Duplicate Set {i+1} ({len(files)} files, hash: {hash_val[:12]}...)", format_bytes(source_file.size_bytes)])
+            
+            source_item = QTreeWidgetItem(group_item, [source_file.path, "Source"])
+            source_item.setForeground(0, QApplication.palette().color(QPalette.ColorRole.Link))
+
+            for dupe_file in files[1:]:
+                QTreeWidgetItem(group_item, [dupe_file.path, ""])
+        
+        self.dupes_tree.expandAll()
+        self.dupes_tree.resizeColumnToContents(1)
+        self.run_dupes_button.setDisabled(False)
+
+    def run_pronom_report(self):
+        self.run_pronom_button.setDisabled(True)
+        self.pronom_table.setRowCount(0)
+        reporter = Reporter()
+        self._run_report(reporter.pronom_summary, self.on_pronom_summary_finished, print_output=False)
+
+    @Slot(object)
+    def on_pronom_summary_finished(self, summary_data):
+        self.pronom_table.setRowCount(len(summary_data))
+        for row, (pronom_id, count, total_size) in enumerate(summary_data or []):
+            self.pronom_table.setItem(row, 0, QTableWidgetItem(pronom_id))
+            self.pronom_table.setItem(row, 1, QTableWidgetItem(str(count)))
+            self.pronom_table.setItem(row, 2, QTableWidgetItem(format_bytes(total_size or 0)))
+        self.pronom_table.resizeColumnsToContents()
+        self.pronom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.run_pronom_button.setDisabled(False)
+
+    def run_similar_images_report(self):
+        self.run_similar_images_button.setDisabled(True)
+        self.similar_images_tree.clear()
+        threshold = self.image_threshold_spinbox.value()
+        reporter = Reporter()
+        self._run_report(reporter.find_image_dupes, self.on_similar_images_finished, threshold, print_output=False)
+
+    @Slot(object)
+    def on_similar_images_finished(self, groups):
+        for i, group in enumerate(groups or []):
+            group_item = QTreeWidgetItem(self.similar_images_tree, [f"Similar Group {i+1} ({len(group)} images)", ""])
+            for path in group:
+                QTreeWidgetItem(group_item, [path, ""])
+        self.similar_images_tree.expandAll()
+        self.run_similar_images_button.setDisabled(False)
 
 class HelpViewWidget(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Help (Not yet implemented)"))
-        layout.addStretch()
+        text_edit = QTextBrowser()
+        text_edit.setReadOnly(True)
+        text_edit.setOpenExternalLinks(True)
+        layout.addWidget(text_edit)
+
+        help_text = """
+        <h2>Welcome to Wanderer!</h2>
+        <p>Wanderer is a powerful tool for indexing and analyzing your local files. This guide will help you get started.</p>
+
+        <h3>Getting Started</h3>
+        <ol>
+            <li><b>Configure Settings:</b> Go to the <b>Settings</b> tab to tell Wanderer where to find your files and how to process them.</li>
+            <li><b>Check Offline Assets:</b> In the Settings tab, use the "Offline Assets" section to download the necessary AI models for semantic search and PII detection.</li>
+            <li><b>Start a Scan:</b> Go to the <b>Scan</b> tab, select the directories you want to index, and click "Start Scan".</li>
+            <li><b>Explore Reports:</b> Once the scan is complete, use the <b>Reports</b> tab to find duplicates, see summaries, and more.</li>
+        </ol>
+
+        <h3>Scanning and Refinement</h3>
+        <p>The <b>Scan</b> tab is your main control center for indexing.</p>
+        <ul>
+            <li><b>New Scan:</b> Select directories and choose which processing steps (like text extraction) to run. For a faster initial scan, you can uncheck these options and run them later.</li>
+            <li><b>Scan History:</b> View a log of past and ongoing scan jobs.</li>
+            <li><b>Refine Data:</b> After a fast initial scan, you can come here to perform deeper analysis on files already in your database. For example, you can run "Refine Skipped Text" to process documents that were skipped during the first pass.</li>
+        </ul>
+
+        <h3>Reporting and Analysis</h3>
+        <p>The <b>Reports</b> tab lets you gain insights from your indexed files.</p>
+        <ul>
+            <li><b>File Type Summary:</b> See a breakdown of all file types by MIME type.</li>
+            <li><b>Largest Files:</b> Quickly find the biggest files in your index.</li>
+            <li><b>PII Report:</b> List all files that have been flagged for containing Personally Identifiable Information.</li>
+            <li><b>Duplicate Files:</b> Finds files that are bit-for-bit identical by comparing their cryptographic hashes.</li>
+            <li><b>PRONOM Summary:</b> A more technical file type summary based on PRONOM IDs (requires Fido to be enabled in Settings).</li>
+            <li><b>Similar Images:</b> Finds visually similar images using perceptual hashing. A threshold of 0 finds exact duplicates, while a small number like 4-5 will find resized or slightly edited copies.</li>
+        </ul>
+
+        <h3>Configuration File</h3>
+        <p>Your settings are saved to a <code>wanderer.toml</code> file. You can edit this file directly for advanced configuration. The path to the file is shown at the top of the <b>Settings</b> tab.</p>
+        """
+        text_edit.setHtml(help_text)
 
 class AboutViewWidget(QWidget):
     def __init__(self):
@@ -742,8 +1085,17 @@ class WandererQtGUI(QMainWindow):
         self.stack.addWidget(self.about_view)
 
         # Connect navigation to stack
+        self.settings_view.settings_saved.connect(self.on_settings_saved)
         self.nav_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav_list.setCurrentRow(0)
+
+    @Slot()
+    def on_settings_saved(self):
+        """Reloads the config and tells all relevant views to update."""
+        self.app_config, self.config_path = config.load_config_with_path()
+        self.settings_view.config_path = self.config_path # Ensure settings view has the updated path
+        self.scan_view.refresh_view(self.app_config)
+        # If other views need updating, they can be called here too.
 
 def main_qt():
     """Entry point for the PySide6 GUI."""

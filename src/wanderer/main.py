@@ -217,7 +217,7 @@ def search(query_text: Tuple[str, ...], limit: int):
     Performs a semantic search for files based on text content.
     
     Example:
-    `poetry run python -m wanderer.main search "financial results" --limit 5`
+    `poetry run wanderer search "financial results" --limit 5`
     """
     from .reporter import Reporter
     if not query_text:

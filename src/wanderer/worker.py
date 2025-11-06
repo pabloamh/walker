@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from . import database, models
 from .models import FileMetadata
 
-sentinel = object()  # A signal to stop the writer thread.
+sentinel = "DONE"  # A signal to stop the writer thread.
 
 
 def db_writer_worker(db_queue: queue.Queue, batch_size: int):
@@ -47,7 +47,7 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
         total_processed = 0
         while True:
             item: Optional[FileMetadata] = db_queue.get()
-            if item is sentinel:
+            if item == sentinel:
                 db_queue.task_done()
                 # Final commit for any remaining items in the batch
                 total_processed += commit_batch(db_session, batch)

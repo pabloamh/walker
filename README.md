@@ -38,12 +38,12 @@ A powerful and efficient file indexer that recursively scans directories, extrac
     ```
 3.  **Download offline assets** (AI models, etc.):
     ```sh
-    poetry run python -m wanderer.main download-assets
+    poetry run wanderer download-assets
     ```
 4.  **Configure `src/wanderer/wanderer.toml`** to set your scan directories.
 5.  **Run the indexer**:
     ```sh
-    poetry run python -m wanderer.main index
+    poetry run wanderer index
     ```
 
 ## Prerequisites
@@ -259,7 +259,7 @@ The GUI provides a visual and interactive way to manage Wanderer. It is perfect 
 
 To launch the GUI, run:
 ```sh
-poetry run python -m wanderer.main gui-qt
+poetry run wanderer gui-qt
 ```
 
 ### Indexing Files
@@ -267,7 +267,7 @@ poetry run python -m wanderer.main gui-qt
 To scan a directory and build or update your index, use the `index` command.
 
 ```bash
-poetry run python -m wanderer.main index [ROOT_PATHS...] [OPTIONS]
+poetry run wanderer index [ROOT_PATHS...] [OPTIONS]
 ```
 
 **Arguments:**
@@ -348,5 +348,17 @@ poetry run python -m walker.main type-summary
 This command lists all files flagged for containing PII and shows the specific categories of information found (e.g., `PERSON`, `PHONE_NUMBER`).
 
 ```bash
-poetry run python -m walker.main list-pii-files
+poetry run wanderer list-pii-files
+```
+
+## Troubleshooting
+
+### GUI Theme Errors on Linux
+
+When running the GUI on some Linux desktops (like XFCE), you may see `dbus` or `qt.qpa.theme.gnome` errors in your terminal. These are generally harmless warnings but can be silenced by setting an environment variable to tell Qt which theme to use.
+
+```sh
+export QT_QPA_PLATFORMTHEME=gtk3
+poetry run wanderer gui-qt
+```
 ```

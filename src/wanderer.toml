@@ -1,0 +1,20 @@
+[tool.wanderer]
+workers = 3
+database_path = "/home/pablomh/Projects/walker/wanderer.db"
+db_batch_size = 500
+exclude_dirs = []
+scan_dirs = [
+    "/home/pablomh/Documents/TestData",
+]
+pii_languages = [
+    "en",
+]
+embedding_model_path = "/home/pablomh/Projects/walker/src/wanderer/models/all-MiniLM-L6-v2"
+use_fido = false
+extract_text_on_scan = true
+compute_perceptual_hash = true
+archive_exclude_extensions = [
+    ".cbz",
+    ".cbr",
+    ".epub",
+]

@@ -205,7 +205,7 @@ class Indexer:
 
         # Each worker needs to signal it's done
         for _ in range(self.final_workers):
-            results_queue.put(worker.sentinel)
+            results_queue.put(worker.sentinel) # type: ignore
         writer_thread.join()
 
     def refine_unknown_files(self):

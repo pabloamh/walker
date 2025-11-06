@@ -143,7 +143,7 @@ def config_to_dict(cfg: Config) -> Dict[str, Any]:
     # Use attrs.asdict and then filter out default values for a cleaner toml file.
     # This is a simplified approach. A more robust one would compare against a
     # default Config instance.
-    return {
+    data = {
         "workers": cfg.workers,
         "database_path": cfg.database_path,
         "db_batch_size": cfg.db_batch_size,
@@ -157,6 +157,8 @@ def config_to_dict(cfg: Config) -> Dict[str, Any]:
         "compute_perceptual_hash": cfg.compute_perceptual_hash,
         "archive_exclude_extensions": cfg.archive_exclude_extensions,
     }
+    # Filter out None values to prevent serialization errors with tomli-w
+    return {k: v for k, v in data.items() if v is not None}
 
 def save_config_to_path(full_toml_data: Dict[str, Any], path: Path):
     """Saves the full TOML data structure to a file."""

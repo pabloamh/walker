@@ -17,7 +17,7 @@ from .utils import group_pairs
 class Reporter:
     """Handles querying the database and reporting results."""
 
-    def find_dupes(self):
+    def find_dupes(self, print_output: bool = True):
         """Finds files with identical content based on their SHA-256 hash."""
         with database.get_session() as db_session:
             click.echo("Querying for duplicate files by hash...")
@@ -38,18 +38,23 @@ class Reporter:
 
             if not all_dupes:
                 click.echo("No duplicate files found.")
-                return
+                return []
 
             grouped_dupes = groupby(all_dupes, key=lambda file: file.crypto_hash)
+            results = []
+            for hash_val, files_group in grouped_dupes:
+                results.append((hash_val, list(files_group)))
 
-            for i, (hash_val, files_group) in enumerate(grouped_dupes, 1):
-                files = list(files_group)
-                click.echo(f"\n--- Set {i} ({len(files)} files, hash: {hash_val[:12]}...) ---")
-                click.echo(click.style(f"  Source: {files[0].path}", fg="green"))
-                for file in files[1:]:
-                    click.echo(f"  - Dup:  {file.path}")
+            if print_output:
+                for i, (hash_val, files) in enumerate(results, 1):
+                    click.echo(f"\n--- Set {i} ({len(files)} files, hash: {hash_val[:12]}...) ---")
+                    click.echo(click.style(f"  Source: {files[0].path}", fg="green"))
+                    for file in files[1:]:
+                        click.echo(f"  - Dup:  {file.path}")
+            
+            return results
 
-    def find_image_dupes(self, threshold: int):
+    def find_image_dupes(self, threshold: int, print_output: bool = True):
         """Finds visually identical or similar images based on perceptual hash."""
         with database.get_session() as db_session:
             click.echo("Querying for duplicate images by perceptual hash...")
@@ -62,7 +67,7 @@ class Reporter:
 
             if len(images) < 2:
                 click.echo("Not enough images in the index to compare.")
-                return
+                return []
 
             click.echo(f"Comparing {len(images)} images...")
             hashes = {path: imagehash.hex_to_hash(phash) for path, phash in images}
@@ -104,13 +109,16 @@ class Reporter:
                 groups = [sorted(g) for g in group_pairs(similar_pairs, paths)]
 
             if not groups:
-                click.echo("No similar images found with the given threshold.")
-                return
+                if print_output:
+                    click.echo("No similar images found with the given threshold.")
+                return []
 
-            for i, group in enumerate(groups, 1):
-                click.echo(f"\n--- Similar Group {i} ---")
-                for path in group:
-                    click.echo(f"  - {path}")
+            if print_output:
+                for i, group in enumerate(groups, 1):
+                    click.echo(f"\n--- Similar Group {i} ---")
+                    for path in group:
+                        click.echo(f"  - {path}")
+            return groups
 
     def find_similar_text(self, threshold: float):
         """Finds files with similar text content using vector embeddings."""
@@ -226,23 +234,28 @@ class Reporter:
             for file in lonely_files_query.limit(limit).all():
                 click.echo(f"{format_bytes(file.size_bytes):>10} | {file.path}")
 
-    def largest_files(self, limit: int):
+    def largest_files(self, limit: int, print_output: bool = True) -> list[models.FileIndex]:
         """Lists the largest files in the index by size."""
         with database.get_session() as db_session:
-            click.echo(f"Querying for the {limit} largest files...")
+            if print_output:
+                click.echo(f"Querying for the {limit} largest files...")
+
             files = (
                 db_session.query(models.FileIndex)
                 .order_by(models.FileIndex.size_bytes.desc())
                 .limit(limit)
                 .all()
             )
-            if not files:
-                click.echo("No files found in the index.")
-                return
-            for file in files:
-                click.echo(f"{format_bytes(file.size_bytes):>10} | {file.path}")
+            if print_output:
+                for file in files:
+                    click.echo(f"{format_bytes(file.size_bytes):>10} | {file.path}")
 
-    def pronom_summary(self):
+            if not files and print_output:
+                click.echo("No files found in the index.")
+
+            return files
+
+    def pronom_summary(self, print_output: bool = True):
         """Shows a summary of file counts grouped by their PRONOM ID."""
         with database.get_session() as db_session:
             click.echo("Generating file type summary by PRONOM ID...")
@@ -258,14 +271,17 @@ class Reporter:
                 .all()
             )
             if not summary:
-                click.echo("No files with PRONOM IDs found in the index. (Run with 'use_fido = true')")
-                return
-            click.echo(f"{'PRONOM ID':<15} | {'Count':>10} | {'Total Size':>12}")
-            click.echo("-" * 43)
-            for pronom_id, count, total_size in summary:
-                click.echo(f"{str(pronom_id):<15} | {count:>10} | {format_bytes(total_size or 0):>12}")
+                if print_output:
+                    click.echo("No files with PRONOM IDs found in the index. (Run with 'use_fido = true')")
+                return []
+            if print_output:
+                click.echo(f"{'PRONOM ID':<15} | {'Count':>10} | {'Total Size':>12}")
+                click.echo("-" * 43)
+                for pronom_id, count, total_size in summary:
+                    click.echo(f"{str(pronom_id):<15} | {count:>10} | {format_bytes(total_size or 0):>12}")
+            return summary
 
-    def type_summary(self):
+    def type_summary(self, print_output: bool = True):
         """Shows a summary of file counts and sizes grouped by MIME type."""
         with database.get_session() as db_session:
             click.echo("Generating file type summary...")
@@ -280,14 +296,17 @@ class Reporter:
                 .all()
             )
             if not summary:
-                click.echo("No files found in the index.")
-                return
-            click.echo(f"{'MIME Type':<60} | {'Count':>10} | {'Total Size':>12}")
-            click.echo("-" * 86)
-            for mime_type, count, total_size in summary:
-                click.echo(f"{str(mime_type):<60} | {count:>10} | {format_bytes(total_size or 0):>12}")
+                if print_output:
+                    click.echo("No files found in the index.")
+                return []
+            if print_output:
+                click.echo(f"{'MIME Type':<60} | {'Count':>10} | {'Total Size':>12}")
+                click.echo("-" * 86)
+                for mime_type, count, total_size in summary:
+                    click.echo(f"{str(mime_type):<60} | {count:>10} | {format_bytes(total_size or 0):>12}")
+            return summary
 
-    def list_pii_files(self):
+    def list_pii_files(self, print_output: bool = True):
         """Lists all files that have been flagged for containing potential PII."""
         with database.get_session() as db_session:
             click.echo("Querying for files flagged with potential PII...")
@@ -298,9 +317,12 @@ class Reporter:
                 .all()
             )
             if not files:
-                click.echo("No files containing potential PII were found.")
-                return
+                if print_output:
+                    click.echo("No files containing potential PII were found.")
+                return []
             
-            for file in files:
-                pii_types_str = ", ".join(file.pii_types)
-                click.echo(f"{file.path} [{click.style(pii_types_str, fg='yellow')}]")
+            if print_output:
+                for file in files:
+                    pii_types_str = ", ".join(file.pii_types)
+                    click.echo(f"{file.path} [{click.style(pii_types_str, fg='yellow')}]")
+            return files
