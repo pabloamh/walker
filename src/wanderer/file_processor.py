@@ -154,8 +154,11 @@ class FileProcessor:
         try:
             with Image.open(self.file_path) as img:
                 p_hash = None
+                # Convert to RGB to ensure hash consistency for images with alpha channels (RGBA)
+                # or different color palettes.
+                img_for_hash = img.convert("RGB")
                 if self.app_config.compute_perceptual_hash:
-                    p_hash = str(imagehash.phash(img))
+                    p_hash = str(imagehash.phash(img_for_hash))
                 exif = self._process_exif(img)
                 return p_hash, exif
         except Exception:
@@ -239,6 +242,11 @@ class FileProcessor:
         """
         found_pii_types: set[str] = set()
         pii_analyzer = get_pii_analyzer()
+
+        # Do not run PII analysis on media files, as it can lead to false positives
+        # from metadata fields (e.g., EXIF 'UserComment').
+        if self.mime_type and self.mime_type.startswith(("image", "video", "audio")):
+            return None
 
         try:
             if content:
@@ -400,12 +408,11 @@ class FileProcessor:
             self.mime_type = magic.from_file(str(self.file_path), mime=True)
             pronom_id = None
 
-            # If magic gives a generic result, try Fido for a more specific ID.
-            if self.app_config.use_fido and self.mime_type in ("application/octet-stream", "inode/x-empty"):
+            # If Fido is enabled, always run it to get a PRONOM ID.
+            if self.app_config.use_fido:
                 fido_result = self._get_pronom_id_with_fido()
                 if fido_result:
                     pronom_id, fido_mimetype = fido_result
-                    # Only override magic's result if Fido gives a more specific MIME type.
                     if fido_mimetype and fido_mimetype != "application/octet-stream":
                         self.mime_type = fido_mimetype
             
@@ -464,12 +471,10 @@ class FileProcessor:
                     metadata_kwargs["content_embedding"] = embedding.tobytes()
                 
                 # --- PII Detection (Optimized) ---
-                if metadata_kwargs["content"]:
-                    # For smaller files where content was already extracted, analyze the content directly.
+                # Only run PII analysis if text was extracted or if it's a text file.
+                # The _run_pii_analysis method itself will block media files.
+                if metadata_kwargs["content"] or (self.mime_type and self.mime_type.startswith("text/")):
                     metadata_kwargs["pii_types"] = self._run_pii_analysis(self.pii_languages, content=metadata_kwargs["content"])
-                # For text files where content wasn't loaded (e.g., too large), use chunked scan.
-                elif self.mime_type and self.mime_type.startswith("text/") and metadata_kwargs["size_bytes"] > 0:
-                    metadata_kwargs["pii_types"] = self._run_pii_analysis(self.pii_languages)
 
             yield FileMetadata(**metadata_kwargs)
         except FileNotFoundError as e:

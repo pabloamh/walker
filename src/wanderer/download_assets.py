@@ -33,7 +33,7 @@ def download_spacy_model(model_full_name: str, model_short_name: str, progress_c
     if not spacy.util.is_package(model_full_name):
         if progress_callback: progress_callback("pii", f"Model not found. Downloading '{model_full_name}'...")
         else: print(f"...model not found. Downloading '{model_full_name}'...")
-        spacy.cli.download(model_full_name, "--quiet") # Use --quiet to suppress CLI output
+        spacy.cli.download(model_full_name) # The extra argument was causing the issue.
         if progress_callback: progress_callback("pii", "Download complete!")
         else: print("...download complete!")
     else:

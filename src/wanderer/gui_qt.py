@@ -11,7 +11,7 @@ from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFormLayout,
                                QGroupBox, QHBoxLayout, QLabel, QLineEdit, QHeaderView, QTextBrowser,
                                QListWidget, QListWidgetItem, QMainWindow, QTreeWidget, QTreeWidgetItem,
-                               QMessageBox, QProgressBar, QPushButton,
+                               QMessageBox, QProgressBar, QPushButton, QSlider,
                                QSpinBox, QStackedWidget, QTabWidget, QSpacerItem, QSizePolicy,
                                QVBoxLayout, QWidget, QDoubleSpinBox, QTextEdit, QTableWidget, QTableWidgetItem,
                                QFileDialog)
@@ -194,10 +194,11 @@ class OfflineAssetsWidget(QWidget):
         # 2. Connect signals from the worker to slots in this widget
         self.worker.checking_asset.connect(self.on_checking_asset)
         self.worker.status_updated.connect(self.on_status_updated)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.active_thread.finished.connect(self.active_thread.deleteLater)
-        self.worker.finished.connect(self.on_check_finished) # Use a specific slot for check finished
-        self.active_thread.started.connect(self.worker.run)
+        # When the worker is done, it should just signal the thread to quit.
+        self.worker.finished.connect(self.active_thread.quit)
+        # The thread's finished signal is the reliable point for cleanup.
+        self.active_thread.finished.connect(self.on_check_finished)
+        self.active_thread.started.connect(self.worker.run) # type: ignore
 
         # 3. Start the thread
         self.active_thread.start()
@@ -249,13 +250,17 @@ class OfflineAssetsWidget(QWidget):
         """
         self.check_assets_button.setDisabled(False)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setValue(0)
-        # Re-enable download buttons for assets that are not downloaded
         for asset_name, (status_label, button) in self._get_asset_widgets().items():
             button.setEnabled(status_label.text() not in ["Available", "Downloaded"])
 
-        self.active_thread = None
-        self.worker = None
+        # Safely clear references to the thread and worker
+        if self.active_thread:
+            # The worker is a child of the thread, so it will be cleaned up automatically.
+            # We just need to delete the thread itself.
+            self.active_thread.deleteLater()
+            self.active_thread = None
+        if self.worker:
+            self.worker = None
 
     def start_download(self, asset_type: str):
         """
@@ -272,15 +277,20 @@ class OfflineAssetsWidget(QWidget):
 
         # 2. Connect signals
         self.worker.progress.connect(self.on_download_progress)
-        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.finished.connect(self.active_thread.quit) # 1. Quit the thread's event loop
+        self.active_thread.finished.connect(self.worker.deleteLater) # 2. Delete worker when thread is finished
         self.active_thread.finished.connect(self.active_thread.deleteLater)
-        # When download finishes, clean up and re-run the check.
-        self.worker.finished.connect(self.on_check_finished) # Use the check finished slot for cleanup
-        self.worker.finished.connect(self.run_asset_check)
-        self.active_thread.started.connect(self.worker.run)
+        # When the download thread has fully finished, run the cleanup and start the check.
+        self.active_thread.finished.connect(self.on_download_finished_and_recheck)
+        self.active_thread.started.connect(self.worker.run) # type: ignore
 
         # 3. Start the thread
         self.active_thread.start()
+
+    def on_download_finished_and_recheck(self):
+        """Slot to safely clean up and then trigger a new asset check."""
+        self.on_check_finished() # First, run the standard cleanup.
+        self.run_asset_check()   # Then, start the new check.
 #</editor-fold>
 
 #<editor-fold desc="Settings View Widget">
@@ -483,6 +493,7 @@ class ScanViewWidget(QWidget):
         super().__init__()
         self.app_config = app_config
         self.worker = None
+        self.last_scan_config = None
         self.active_thread = None
 
         # Main layout for the Scan View
@@ -646,14 +657,16 @@ class ScanViewWidget(QWidget):
             archive_exclude_extensions=self.app_config.archive_exclude_extensions,
         )
 
+        self.last_scan_config = scan_config
         self.active_thread = QThread(self)
         self.worker = ScanWorker(scan_config, selected_paths)
         self.worker.moveToThread(self.active_thread)
 
         self.worker.progress.connect(self.on_scan_progress)
-        self.stop_scan_button.clicked.connect(self.active_thread.requestInterruption) # Allow stopping scan
+        self.stop_scan_button.clicked.connect(self.stop_scan)
+        self.worker.finished.connect(self.active_thread.quit)
         self.worker.finished.connect(self.on_scan_finished)
-        self.active_thread.started.connect(self.worker.run)
+        self.active_thread.started.connect(self.worker.run) # type: ignore
         self.active_thread.start()
 
     @Slot(int, int, str)
@@ -667,11 +680,26 @@ class ScanViewWidget(QWidget):
 
     @Slot(str)
     def on_scan_finished(self, message):
+        """Handles the completion of a scan task."""
+        # After a scan, disable refine buttons if the relevant options were already enabled.
+        if self.last_scan_config:
+            if self.last_scan_config.use_fido:
+                self.refine_fido_button.setDisabled(True)
+            if self.last_scan_config.extract_text_on_scan:
+                self.refine_text_button.setDisabled(True)
         self.set_scan_ui_state(False, message)
         self.refresh_scan_history()
+        if self.active_thread:
+            self.active_thread.quit()
+            self.active_thread.deleteLater()
+            self.active_thread = None
 
-        self.worker = None
-        self.active_thread = None
+    def stop_scan(self):
+        """Requests the running thread to stop."""
+        if self.active_thread and self.active_thread.isRunning():
+            self.active_thread.requestInterruption()
+            self.set_scan_ui_state(False, "Scan stopped by user.")
+
     def start_refine(self, refine_type: str):
         # Disable buttons and show progress (similar to scan)
         self.refine_fido_button.setDisabled(True)
@@ -705,14 +733,15 @@ class ScanViewWidget(QWidget):
         self.worker = GenericWorker(refine_task, idx, refine_type)
         self.worker.moveToThread(self.active_thread)
 
+        @Slot(object)
         def on_refine_finished(message):
             QMessageBox.information(self, "Refinement Status", message)
             self.refine_fido_button.setDisabled(not self.app_config.use_fido)
             self.refine_text_button.setDisabled(False)
             self.active_thread.quit()
-            self.active_thread.wait() # type: ignore
 
         self.worker.finished.connect(on_refine_finished)
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
         self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))
 
         self.active_thread.started.connect(self.worker.run)
@@ -734,13 +763,15 @@ class ScanViewWidget(QWidget):
                     end_time_str = log.end_time.strftime('%Y-%m-%d %H:%M:%S') if log.end_time else "In Progress"
                     item_text = f"[{log.status.upper()}] {log.start_time.strftime('%Y-%m-%d %H:%M:%S')} -> {end_time_str} ({log.files_scanned} files)"
                     self.scan_history_list.addItem(item_text)
-            self.active_thread.quit()
-            self.active_thread.wait()
+            if self.active_thread:
+                self.active_thread.quit()
 
         self.active_thread = QThread(self)
         self.worker = GenericWorker(get_history)
         self.worker.moveToThread(self.active_thread)
         self.worker.finished.connect(on_history_loaded)
+        self.worker.finished.connect(self.active_thread.quit)
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
         self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
 
@@ -863,10 +894,30 @@ class ReportsViewWidget(QWidget):
         similar_images_layout.addWidget(self.similar_images_tree)
         tab_widget.addTab(similar_images_tab, "Similar Images")
 
-        # --- Similar Text Tab (Placeholder) ---
+        # --- Similar Text Tab ---
         similar_text_tab = QWidget()
         similar_text_layout = QVBoxLayout(similar_text_tab)
-        similar_text_layout.addWidget(QLabel("Similar Text Report (Not yet implemented)"))
+        similar_text_controls = QHBoxLayout()
+        self.text_threshold_slider = QSlider(Qt.Horizontal)
+        self.text_threshold_slider.setRange(80, 100)
+        self.text_threshold_slider.setValue(95)
+        self.text_threshold_label = QLabel(f"Similarity Threshold: {self.text_threshold_slider.value()}%")
+        self.text_threshold_slider.valueChanged.connect(lambda val: self.text_threshold_label.setText(f"Similarity Threshold: {val}%"))
+        self.run_similar_text_button = QPushButton("Find Similar Text")
+        self.run_similar_text_button.clicked.connect(self.run_similar_text_report)
+        similar_text_controls.addWidget(self.text_threshold_label)
+        similar_text_controls.addWidget(self.text_threshold_slider)
+        similar_text_controls.addWidget(self.run_similar_text_button)
+        self.similar_text_status = QLabel("")
+        self.similar_text_progress = QProgressBar()
+        self.similar_text_progress.setVisible(False)
+        self.similar_text_tree = QTreeWidget()
+        self.similar_text_tree.setHeaderLabels(["File Path", ""])
+        self.similar_text_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        similar_text_layout.addLayout(similar_text_controls)
+        similar_text_layout.addWidget(self.similar_text_status)
+        similar_text_layout.addWidget(self.similar_text_progress)
+        similar_text_layout.addWidget(self.similar_text_tree)
         tab_widget.addTab(similar_text_tab, "Similar Text")
 
     def _run_report(self, report_function, on_finish_slot, *args, **kwargs):
@@ -875,7 +926,7 @@ class ReportsViewWidget(QWidget):
         self.worker = GenericWorker(report_function, *args, **kwargs)
         self.worker.moveToThread(self.active_thread)
         self.worker.finished.connect(on_finish_slot)
-        self.worker.finished.connect(self.active_thread.quit)
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
         self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Report Error", msg))
         self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
@@ -889,6 +940,7 @@ class ReportsViewWidget(QWidget):
     @Slot(object)
     def on_type_summary_finished(self, summary_data):
         self.type_summary_table.setRowCount(len(summary_data))
+        self.type_summary_table.setSortingEnabled(False)
         for row, (mime_type, count, total_size) in enumerate(summary_data):
             self.type_summary_table.setItem(row, 0, QTableWidgetItem(mime_type))
             count_item = QTableWidgetItem()
@@ -897,6 +949,7 @@ class ReportsViewWidget(QWidget):
             self.type_summary_table.setItem(row, 2, QTableWidgetItem(format_bytes(total_size or 0)))
         self.type_summary_table.resizeColumnsToContents()
         self.type_summary_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.type_summary_table.setSortingEnabled(True)
         self.run_type_summary_button.setDisabled(False)
 
     def run_largest_files(self):
@@ -909,6 +962,7 @@ class ReportsViewWidget(QWidget):
     @Slot(object)
     def on_largest_files_finished(self, files_data):
         self.largest_files_table.setRowCount(len(files_data))
+        self.largest_files_table.setSortingEnabled(False)
         for row, file in enumerate(files_data or []):
             size_item = QTableWidgetItem(format_bytes(file.size_bytes))
             size_item.setData(0, file.size_bytes) # Store raw bytes for sorting
@@ -916,6 +970,7 @@ class ReportsViewWidget(QWidget):
             self.largest_files_table.setItem(row, 1, QTableWidgetItem(file.path))
         self.largest_files_table.resizeColumnsToContents()
         self.largest_files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.largest_files_table.setSortingEnabled(True)
         self.run_largest_files_button.setDisabled(False)
 
     def run_pii_files(self):
@@ -927,11 +982,14 @@ class ReportsViewWidget(QWidget):
     @Slot(object)
     def on_pii_files_finished(self, pii_data):
         self.pii_files_table.setRowCount(len(pii_data))
+        self.pii_files_table.setSortingEnabled(False)
         for row, file in enumerate(pii_data or []):
             self.pii_files_table.setItem(row, 0, QTableWidgetItem(file.path))
-            self.pii_files_table.setItem(row, 1, QTableWidgetItem(", ".join(file.pii_types)))
+            pii_str = ", ".join(file.pii_types or [])
+            self.pii_files_table.setItem(row, 1, QTableWidgetItem(pii_str))
         self.pii_files_table.resizeColumnsToContents()
         self.pii_files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pii_files_table.setSortingEnabled(True)
         self.run_pii_files_button.setDisabled(False)
 
     def run_dupes_report(self):
@@ -965,12 +1023,20 @@ class ReportsViewWidget(QWidget):
     @Slot(object)
     def on_pronom_summary_finished(self, summary_data):
         self.pronom_table.setRowCount(len(summary_data))
+        self.pronom_table.setSortingEnabled(False)
         for row, (pronom_id, count, total_size) in enumerate(summary_data or []):
             self.pronom_table.setItem(row, 0, QTableWidgetItem(pronom_id))
-            self.pronom_table.setItem(row, 1, QTableWidgetItem(str(count)))
-            self.pronom_table.setItem(row, 2, QTableWidgetItem(format_bytes(total_size or 0)))
+            
+            count_item = QTableWidgetItem()
+            count_item.setData(Qt.ItemDataRole.DisplayRole, count)
+            self.pronom_table.setItem(row, 1, count_item)
+
+            size_item = QTableWidgetItem(format_bytes(total_size or 0))
+            size_item.setData(Qt.ItemDataRole.DisplayRole, total_size or 0)
+            self.pronom_table.setItem(row, 2, size_item)
         self.pronom_table.resizeColumnsToContents()
         self.pronom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pronom_table.setSortingEnabled(True)
         self.run_pronom_button.setDisabled(False)
 
     def run_similar_images_report(self):
@@ -1000,7 +1066,36 @@ class ReportsViewWidget(QWidget):
         self.similar_images_tree.expandAll()
         self.run_similar_images_button.setDisabled(False)
 
-class HelpViewWidget(QWidget):
+    def run_similar_text_report(self):
+        self.run_similar_text_button.setDisabled(True)
+        self.similar_text_tree.clear()
+        self.similar_text_status.setText("Running report...")
+        threshold = self.text_threshold_slider.value() / 100.0
+        reporter = Reporter()
+        self._run_report(reporter.find_similar_text, self.on_similar_text_finished, threshold, print_output=False, progress_callback=self.on_similar_text_progress)
+
+    @Slot(int, int, str)
+    def on_similar_text_progress(self, value, total, description):
+        self.similar_text_status.setText(description)
+        self.similar_text_progress.setRange(0, total)
+        self.similar_text_progress.setValue(value)
+
+    @Slot(object)
+    def on_similar_text_finished(self, groups):
+        self.similar_text_status.setText(f"Found {len(groups or [])} groups of similar text files.")
+        self.similar_text_progress.setVisible(False)
+        if not groups:
+            self.run_similar_text_button.setDisabled(False)
+            return
+
+        for i, group in enumerate(groups or []):
+            group_item = QTreeWidgetItem(self.similar_text_tree, [f"Similar Group {i+1} ({len(group)} files)", ""])
+            for path in sorted(group):
+                QTreeWidgetItem(group_item, [path, ""])
+        self.similar_text_tree.expandAll()
+        self.run_similar_text_button.setDisabled(False)
+
+class HelpViewWidget(QWidget): # noqa
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)

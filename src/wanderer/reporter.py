@@ -1,6 +1,7 @@
 # wanderer/reporter.py
 from collections import defaultdict
 from itertools import groupby
+from typing import Optional
 
 import click
 import imagehash
@@ -120,7 +121,7 @@ class Reporter:
                         click.echo(f"  - {path}")
             return groups
 
-    def find_similar_text(self, threshold: float):
+    def find_similar_text(self, threshold: float, print_output: bool = True, progress_callback: Optional[callable] = None):
         """Finds files with similar text content using vector embeddings."""
         with database.get_session() as db_session:
             click.echo("Querying for files with text embeddings...")
@@ -130,7 +131,7 @@ class Reporter:
             count = query.count()
             if count < 2:
                 click.echo("Not enough text files in the index to compare.")
-                return
+                return []
 
             click.echo(f"Found {count} text files. Calculating similarities...")
 
@@ -143,7 +144,9 @@ class Reporter:
             paths = [r.path for r in results]
             embeddings = np.array([np.frombuffer(r.content_embedding, dtype=np.float32) for r in results])
 
-            with tqdm(total=(count // chunk_size) ** 2 // 2, desc="Comparing chunks") as pbar:
+            total_chunks = (count + chunk_size - 1) // chunk_size
+            total_comparisons = total_chunks * (total_chunks + 1) // 2
+            with tqdm(total=total_comparisons, desc="Comparing chunks", disable=not print_output) as pbar:
                 for i in range(0, count, chunk_size):
                     chunk_i_embeddings = embeddings[i:i + chunk_size]
 
@@ -160,17 +163,21 @@ class Reporter:
                         indices_i, indices_j = np.where(sim_matrix_inter >= threshold)
                         for i1, j1 in zip(indices_i, indices_j):
                             similar_pairs.append((i + i1, j + j1))
-                        pbar.update(1)
+                    pbar.update(1)
+                    if progress_callback:
+                        progress_callback(pbar.n, pbar.total, f"Comparing chunk {i//chunk_size + 1}...")
 
             if not similar_pairs:
-                click.echo("No similar text files found above the threshold.")
-                return
+                if print_output: click.echo("No similar text files found above the threshold.")
+                return []
 
             groups = group_pairs(similar_pairs, paths)
-            for i, group in enumerate(groups, 1):
-                click.echo(f"\n--- Similar Group {i} ---")
-                for path in sorted(group):
-                    click.echo(f"  - {path}")
+            if print_output:
+                for i, group in enumerate(groups, 1):
+                    click.echo(f"\n--- Similar Group {i} ---")
+                    for path in sorted(group):
+                        click.echo(f"  - {path}")
+            return groups
 
     def search_content(self, full_query: str, limit: int):
         """Performs a semantic search for files based on text content."""

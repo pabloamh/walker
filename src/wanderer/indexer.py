@@ -175,7 +175,9 @@ class Indexer:
         """
         manager = multiprocessing.Manager()
         results_queue = manager.Queue()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size))
+        # Use an Event to signal when the writer is truly finished.
+        writer_finished_event = threading.Event()
+        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size, self.app_config, writer_finished_event))
         writer_thread.start()
 
         # If a GUI progress callback is provided, use it. Otherwise, use tqdm for CLI.
@@ -203,9 +205,10 @@ class Indexer:
                         logging.error(error_message, exc_info=True)
                         tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
-        # Each worker needs to signal it's done
-        for _ in range(self.final_workers):
-            results_queue.put(worker.sentinel) # type: ignore
+        # Wait for all file processing tasks to complete and be put on the queue.
+        # Then, signal the writer that no more items will be added.
+        executor.shutdown(wait=True)
+        results_queue.put(worker.sentinel)
         writer_thread.join()
 
     def refine_unknown_files(self):

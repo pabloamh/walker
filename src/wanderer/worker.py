@@ -4,6 +4,7 @@ import queue
 import resource
 import sys
 import warnings
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -19,7 +20,7 @@ from .models import FileMetadata
 sentinel = "DONE"  # A signal to stop the writer thread.
 
 
-def db_writer_worker(db_queue: queue.Queue, batch_size: int):
+def db_writer_worker(db_queue: queue.Queue, batch_size: int, app_config: models.Config, finished_event: threading.Event):
     """
     A dedicated worker that pulls results from the queue and writes them to the DB.
     """
@@ -48,19 +49,18 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int):
         while True:
             item: Optional[FileMetadata] = db_queue.get()
             if item == sentinel:
-                db_queue.task_done()
                 # Final commit for any remaining items in the batch
                 total_processed += commit_batch(db_session, batch)
-                # All sentinels are in, wait for all tasks to be marked as done.
-                db_queue.join()
                 db_queue.task_done()
-                break
+                break  # Exit the loop once the sentinel is received.
             else:
                 batch.append(attrs.asdict(item)) # type: ignore
+                db_queue.task_done()
                 if len(batch) >= batch_size:
                     total_processed += commit_batch(db_session, batch)
-                db_queue.task_done()
-    click.echo(f"DB writer finished. A total of {total_processed} records were written.")
+
+    if total_processed > 0:
+        click.echo(f"DB writer finished. A total of {total_processed} records were written.")
 
 
 def set_memory_limit(limit_gb: Optional[float]):

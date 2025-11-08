@@ -34,6 +34,7 @@ class DeduplicatingLogHandler(logging.FileHandler):
         # After that, it's considered a repetitive error and is suppressed.
         if self.message_counts[msg_key] <= 5:
             super().emit(record)
+            self.flush()  # Force write to disk immediately for debugging crashes.
         else:
             self.suppressed_counts[msg_key] += 1
 

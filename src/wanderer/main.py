@@ -62,7 +62,8 @@ def format_bytes(size: int) -> str:
 @click.group()
 def cli():
     """A powerful file indexer and query tool."""
-    pass
+    # Set up logging as soon as the CLI is invoked.
+    setup_logging()
 
 @cli.command(name="index")
 @click.argument('root_paths', nargs=-1, required=False, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
@@ -76,9 +77,6 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
     If ROOT_PATHS are not provided, it will use 'scan_dirs' from wanderer.toml.
     """
     from .indexer import Indexer
-
-    # Change to the script's directory to reliably find walker.toml and the DB.
-    setup_logging()
 
     click.echo(f"Initializing database...")
     database.init_db()
