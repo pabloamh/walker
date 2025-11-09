@@ -65,11 +65,11 @@ class AssetCheckWorker(QObject):
         )
 
         # 3. Check Fido Signatures
-        self.checking_asset.emit("fido")
-        fido_sig_path = models_dir / "fido_cache" / "DROID_SignatureFile.xml"
-        fido_ok = fido_sig_path.is_file()
+        self.checking_asset.emit("droid")
+        droid_path = script_dir / "droid" / "droid.sh"
+        fido_ok = droid_path.is_file()
         self.status_updated.emit(
-            "fido", "Available" if fido_ok else "Not Found",
+            "droid", "Available" if fido_ok else "Not Found",
             "green" if fido_ok else "orange", fido_ok
         )
 
@@ -102,10 +102,10 @@ class AssetDownloadWorker(QObject):
             for lang in self.app_config.pii_languages:
                 model_name = config.get_spacy_model_name(lang)
                 download_assets.download_spacy_model(model_name, lang,
-                                                     progress_callback=lambda asset, msg: self.progress.emit(asset, msg))
-        elif self.asset_type == "fido":
-            download_assets.cache_fido_signatures(models_dir / 'fido_cache',
-                                                  progress_callback=lambda asset, msg: self.progress.emit(asset, msg))
+                                                     progress_callback=self.progress.emit)
+        elif self.asset_type == "droid":
+            download_assets.download_droid(script_dir / 'droid',
+                                           progress_callback=self.progress.emit)
         
         self.finished.emit()
 #</editor-fold>
@@ -152,10 +152,10 @@ class OfflineAssetsWidget(QWidget):
         self.pii_download_button.clicked.connect(lambda: self.start_download("pii"))
         form_layout.addRow(f"PII Models ({','.join(self.app_config.pii_languages)}):", self._create_asset_row(self.pii_status_label, self.pii_download_button))
 
-        self.fido_status_label = QLabel("Unknown")
-        self.fido_download_button = QPushButton("Download")
-        self.fido_download_button.clicked.connect(lambda: self.start_download("fido"))
-        form_layout.addRow("Fido/PRONOM Signatures:", self._create_asset_row(self.fido_status_label, self.fido_download_button))
+        self.droid_status_label = QLabel("Unknown")
+        self.droid_download_button = QPushButton("Download")
+        self.droid_download_button.clicked.connect(lambda: self.start_download("droid"))
+        form_layout.addRow("DROID/PRONOM Signatures:", self._create_asset_row(self.droid_status_label, self.droid_download_button))
 
         # Keep track of the currently running thread to prevent multiple operations
         self.active_thread = None
@@ -208,7 +208,7 @@ class OfflineAssetsWidget(QWidget):
         return {
             "embedding": (self.embedding_status_label, self.embedding_download_button),
             "pii": (self.pii_status_label, self.pii_download_button),
-            "fido": (self.fido_status_label, self.fido_download_button),
+            "droid": (self.droid_status_label, self.droid_download_button),
         }
 
     @Slot(str)
@@ -233,7 +233,7 @@ class OfflineAssetsWidget(QWidget):
         download_button.setEnabled(not is_downloaded)
 
         # Special case for Fido button
-        if asset_name == "fido" and not self.app_config.use_fido:
+        if asset_name == "droid" and not self.app_config.use_droid:
             download_button.setEnabled(False)
 
     @Slot(str, str)
@@ -327,7 +327,7 @@ class SettingsViewWidget(QWidget):
         self.memory_limit_field.setDecimals(1)
         self.memory_limit_field.setValue(self.app_config.memory_limit_gb or 0.0)
 
-        self.use_fido_switch.setChecked(self.app_config.use_fido)
+        self.use_droid_switch.setChecked(self.app_config.use_droid)
         self.extract_text_switch.setChecked(self.app_config.extract_text_on_scan)
         self.phash_switch.setChecked(self.app_config.compute_perceptual_hash)
         self.pii_languages_field.setText(",".join(self.app_config.pii_languages))
@@ -388,7 +388,7 @@ class SettingsViewWidget(QWidget):
         self.app_config.workers = self.workers_field.value()
         self.app_config.db_batch_size = self.db_batch_size_field.value()
         self.app_config.memory_limit_gb = self.memory_limit_field.value() if self.memory_limit_field.value() > 0 else None
-        self.app_config.use_fido = self.use_fido_switch.isChecked()
+        self.app_config.use_droid = self.use_droid_switch.isChecked()
         self.app_config.extract_text_on_scan = self.extract_text_switch.isChecked()
         self.app_config.compute_perceptual_hash = self.phash_switch.isChecked()
         self.app_config.pii_languages = [lang.strip() for lang in self.pii_languages_field.text().split(',') if lang.strip()]
@@ -449,6 +449,7 @@ class GenericWorker(QObject):
     def run(self):
         """Executes the function and emits the result or an error."""
         try:
+            database.init_db()
             result = self.fn(*self.args, **self.kwargs)
             self.finished.emit(result)
         except Exception as e:
@@ -530,11 +531,11 @@ class ScanViewWidget(QWidget):
         self.scan_option_text.setChecked(self.app_config.extract_text_on_scan)
         self.scan_option_phash = QCheckBox("Compute Perceptual Hashes")
         self.scan_option_phash.setChecked(self.app_config.compute_perceptual_hash)
-        self.scan_option_fido = QCheckBox("Enable Fido for unknown types")
-        self.scan_option_fido.setChecked(self.app_config.use_fido)
+        self.scan_option_droid = QCheckBox("Enable DROID for unknown types")
+        self.scan_option_droid.setChecked(self.app_config.use_droid)
         scan_options_layout.addWidget(self.scan_option_text)
         scan_options_layout.addWidget(self.scan_option_phash)
-        scan_options_layout.addWidget(self.scan_option_fido)
+        scan_options_layout.addWidget(self.scan_option_droid)
         new_scan_layout.addWidget(scan_options_group)
 
         # Scan Controls
@@ -570,10 +571,10 @@ class ScanViewWidget(QWidget):
         refine_data_tab = QWidget()
         refine_layout = QVBoxLayout(refine_data_tab)
         refine_layout.addWidget(QLabel("Run deep analysis on files already in the database. This is useful after a fast initial scan."))
-        
-        self.refine_fido_button = QPushButton("Refine Unknown Files (Fido)")
-        self.refine_fido_button.clicked.connect(lambda: self.start_refine("fido"))
-        self.refine_fido_button.setDisabled(not self.app_config.use_fido)
+
+        self.refine_fido_button = QPushButton("Run DROID on All Indexed Files")
+        self.refine_fido_button.clicked.connect(lambda: self.start_refine("droid"))
+        self.refine_fido_button.setDisabled(not self.app_config.use_droid)
         refine_layout.addWidget(self.refine_fido_button)
 
         self.refine_text_button = QPushButton("Refine Skipped Text")
@@ -599,8 +600,8 @@ class ScanViewWidget(QWidget):
 
         self.scan_option_text.setChecked(self.app_config.extract_text_on_scan)
         self.scan_option_phash.setChecked(self.app_config.compute_perceptual_hash)
-        self.scan_option_fido.setChecked(self.app_config.use_fido)
-        self.refine_fido_button.setDisabled(not self.app_config.use_fido)
+        self.scan_option_droid.setChecked(self.app_config.use_droid)
+        self.refine_fido_button.setDisabled(not self.app_config.use_droid)
 
         # Refresh the list of scannable directories
         # Clear existing widgets from the layout
@@ -631,7 +632,7 @@ class ScanViewWidget(QWidget):
             cb.setDisabled(is_scanning)
         self.scan_option_text.setDisabled(is_scanning)
         self.scan_option_phash.setDisabled(is_scanning)
-        self.scan_option_fido.setDisabled(is_scanning)
+        self.scan_option_droid.setDisabled(is_scanning)
 
         self.scan_status_label.setText(message or ("Starting scan..." if is_scanning else "Idle."))
         if is_scanning:
@@ -645,7 +646,7 @@ class ScanViewWidget(QWidget):
         scan_config = config.Config(
             extract_text_on_scan=self.scan_option_text.isChecked(),
             compute_perceptual_hash=self.scan_option_phash.isChecked(),
-            use_fido=self.scan_option_fido.isChecked(),
+            use_droid=self.scan_option_droid.isChecked(),
             # Inherit other settings from app_config
             workers=self.app_config.workers,
             db_batch_size=self.app_config.db_batch_size,
@@ -667,6 +668,10 @@ class ScanViewWidget(QWidget):
         self.worker.finished.connect(self.active_thread.quit)
         self.worker.finished.connect(self.on_scan_finished)
         self.active_thread.started.connect(self.worker.run) # type: ignore
+
+        # --- Correct Cleanup Pattern ---
+        # Schedule the thread for deletion only after its event loop has finished.
+        self.active_thread.finished.connect(self.active_thread.deleteLater)
         self.active_thread.start()
 
     @Slot(int, int, str)
@@ -682,17 +687,14 @@ class ScanViewWidget(QWidget):
     def on_scan_finished(self, message):
         """Handles the completion of a scan task."""
         # After a scan, disable refine buttons if the relevant options were already enabled.
-        if self.last_scan_config:
-            if self.last_scan_config.use_fido:
+        if self.last_scan_config and self.last_scan_config.use_droid:
+            if self.last_scan_config.use_droid:
                 self.refine_fido_button.setDisabled(True)
             if self.last_scan_config.extract_text_on_scan:
                 self.refine_text_button.setDisabled(True)
         self.set_scan_ui_state(False, message)
         self.refresh_scan_history()
-        if self.active_thread:
-            self.active_thread.quit()
-            self.active_thread.deleteLater()
-            self.active_thread = None
+        self.active_thread = None # The thread will self-delete, so we just clear the reference.
 
     def stop_scan(self):
         """Requests the running thread to stop."""
@@ -713,12 +715,12 @@ class ScanViewWidget(QWidget):
             self.app_config,
             extract_text_on_scan=refine_type == "text",
             compute_perceptual_hash=False,  # Not used in these jobs
-            use_fido=refine_type == "fido",
+            use_droid=refine_type == "droid",
         )
 
         # Define the function to be run in the background
         def refine_task(idx_instance, task_type):
-            if task_type == "fido":
+            if task_type == "droid":
                 idx_instance.refine_unknown_files()
                 return "Fido refinement finished successfully."
             elif task_type == "text":
@@ -733,17 +735,23 @@ class ScanViewWidget(QWidget):
         self.worker = GenericWorker(refine_task, idx, refine_type)
         self.worker.moveToThread(self.active_thread)
 
-        @Slot(object)
-        def on_refine_finished(message):
-            QMessageBox.information(self, "Refinement Status", message)
-            self.refine_fido_button.setDisabled(not self.app_config.use_fido)
+        def on_refine_finished(message: str):
+            QMessageBox.information(self, "Refinement Complete", message)
+            self.refine_fido_button.setDisabled(not self.app_config.use_droid)
             self.refine_text_button.setDisabled(False)
-            self.active_thread.quit()
 
-        self.worker.finished.connect(on_refine_finished)
+        # --- Correct, robust cleanup pattern for QThread ---
+        # 1. When the worker's task is done, tell the thread's event loop to quit.
+        self.worker.finished.connect(self.active_thread.quit)
+
+        # 2. When the thread's event loop has finished, schedule both the worker and the thread for deletion.
+        #    This ensures Qt's main event loop handles the cleanup safely.
+        self.active_thread.finished.connect(self.worker.deleteLater)
         self.active_thread.finished.connect(self.active_thread.deleteLater)
-        self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))
 
+        # 3. Connect the worker's finished signal to the UI update slot.
+        self.worker.finished.connect(on_refine_finished)
+        self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Refinement Error", msg))        
         self.active_thread.started.connect(self.worker.run)
         self.active_thread.start()
 
@@ -866,7 +874,7 @@ class ReportsViewWidget(QWidget):
         self.run_pronom_button.clicked.connect(self.run_pronom_report)
         self.pronom_table = QTableWidget()
         self.pronom_table.setColumnCount(3)
-        self.pronom_table.setHorizontalHeaderLabels(["PRONOM ID", "File Count", "Total Size"])
+        self.pronom_table.setHorizontalHeaderLabels(["DROID/PRONOM ID", "File Count", "Total Size"])
         self.pronom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.pronom_table.setSortingEnabled(True)
         self.pronom_layout.addWidget(self.run_pronom_button)
@@ -1025,14 +1033,15 @@ class ReportsViewWidget(QWidget):
         self.pronom_table.setRowCount(len(summary_data))
         self.pronom_table.setSortingEnabled(False)
         for row, (pronom_id, count, total_size) in enumerate(summary_data or []):
-            self.pronom_table.setItem(row, 0, QTableWidgetItem(pronom_id))
+            id_item = QTableWidgetItem(pronom_id)
+            self.pronom_table.setItem(row, 0, id_item)
             
             count_item = QTableWidgetItem()
-            count_item.setData(Qt.ItemDataRole.DisplayRole, count)
-            self.pronom_table.setItem(row, 1, count_item)
+            count_item.setData(Qt.ItemDataRole.DisplayRole, count) # Set data for sorting
+            self.pronom_table.setItem(row, 1, count_item) # type: ignore
 
             size_item = QTableWidgetItem(format_bytes(total_size or 0))
-            size_item.setData(Qt.ItemDataRole.DisplayRole, total_size or 0)
+            size_item.setData(Qt.ItemDataRole.DisplayRole, total_size or 0) # Set data for sorting
             self.pronom_table.setItem(row, 2, size_item)
         self.pronom_table.resizeColumnsToContents()
         self.pronom_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -1131,7 +1140,7 @@ class HelpViewWidget(QWidget): # noqa
             <li><b>Largest Files:</b> Quickly find the biggest files in your index.</li>
             <li><b>PII Report:</b> List all files that have been flagged for containing Personally Identifiable Information.</li>
             <li><b>Duplicate Files:</b> Finds files that are bit-for-bit identical by comparing their cryptographic hashes.</li>
-            <li><b>PRONOM Summary:</b> A more technical file type summary based on PRONOM IDs (requires Fido to be enabled in Settings).</li>
+            <li><b>PRONOM Summary:</b> A more technical file type summary based on PRONOM IDs (requires DROID to be enabled in Settings).</li>
             <li><b>Similar Images:</b> Finds visually similar images using perceptual hashing. A threshold of 0 finds exact duplicates, while a small number like 4-5 will find resized or slightly edited copies.</li>
         </ul>
 

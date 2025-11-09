@@ -93,11 +93,10 @@ def index(root_paths: Tuple[Path, ...], workers: int, memory_limit_gb: Optional[
 @click.option('--workers', default=3, help='Number of processor workers.')
 def refine_unknowns(workers: int):
     """
-    Post-processes files with generic MIME types using Fido.
+    Re-processes all files in the database using Fido.
 
-    This command finds files indexed as 'application/octet-stream' or
-    'inode/x-empty' and re-processes them with Fido to get a more
-    accurate PRONOM ID and MIME type. Requires 'use_fido = true' in config.
+    This is useful for ensuring all files have the most accurate PRONOM ID
+    and MIME type, overriding any initial, less-reliable results.
     """
     from .indexer import Indexer
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())

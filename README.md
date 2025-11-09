@@ -17,6 +17,7 @@ A powerful and efficient file indexer that recursively scans directories, extrac
     - **Audio**: Extracts metadata tags like artist, album, and title.
 - **Deep Archive Scanning**: Extracts and individually processes files within archives (`.zip`, `.tar`, etc.), treating them as virtual folders.
 - **Advanced File Identification**: Optionally uses **Fido** with **PRONOM** signatures for highly accurate file format identification, especially for files with generic MIME types.
+- **Robust File Identification**: Uses **DROID** with **PRONOM** signatures for highly accurate file format identification, especially for files with generic MIME types.
 - **Text Content Extraction**: Extracts readable text from plain text files (`.txt`, `.md`), HTML, and email (`.eml`) files.
 - **Categorized PII Detection**: Scans for Personally Identifiable Information (PII) and reports the specific types found (e.g., `CREDIT_CARD_NUMBER`, `PHONE_NUMBER`).
 - **Semantic Search**: Performs powerful, meaning-based searches on file content using AI embeddings.
@@ -30,7 +31,7 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 ## Quick Start
 
 1.  **Install prerequisites** (Python 3.11+, Poetry, `libmagic`, `mediainfo`).
-2.  **Clone and install**:
+1.  **Install prerequisites** (Python 3.11+, Poetry, Java, `libmagic`, `mediainfo`).
     ```sh
     git clone <your-repo-url>
     cd wanderer
@@ -50,7 +51,8 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 
 Before you begin, ensure you have the following installed:
 -   **Python 3.11+**
--   **Poetry** for managing Python dependencies.
+-   **Poetry** for managing Python dependencies
+-   **Java**: Required to run the DROID tool for file identification.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
 -   **`mediainfo`**: Required for video metadata extraction.
 
@@ -58,7 +60,7 @@ Before you begin, ensure you have the following installed:
 
 **On Debian/Ubuntu:**
 ```bash
-sudo apt-get update && sudo apt-get install libmagic1 mediainfo
+sudo apt-get update && sudo apt-get install default-jre libmagic1 mediainfo
 ```
 
 **On macOS (using Homebrew):**

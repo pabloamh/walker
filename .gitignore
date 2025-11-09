@@ -34,3 +34,7 @@ htmlcov/
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# Downloaded offline assets
+src/wanderer/models/
+src/wanderer/fido_cache/

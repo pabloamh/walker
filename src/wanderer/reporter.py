@@ -319,7 +319,7 @@ class Reporter:
             click.echo("Querying for files flagged with potential PII...")
             files = (
                 db_session.query(models.FileIndex)
-                .filter(models.FileIndex.pii_types.isnot(None))
+                .filter(models.FileIndex.pii_types.is_not(None) & (func.json_array_length(models.FileIndex.pii_types) > 0))
                 .order_by(models.FileIndex.path)
                 .all()
             )

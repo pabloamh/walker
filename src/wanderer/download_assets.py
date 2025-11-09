@@ -58,67 +58,54 @@ def cache_tldextract_list(cache_dir: Path, progress_callback: callable = None):
         if progress_callback: progress_callback("tldextract", f"Error caching tldextract: {e}")
         else: print(f"...error caching tldextract: {e}")
 
-def cache_fido_signatures(cache_dir: Path, progress_callback: callable = None):
-    """Downloads the latest PRONOM signature file for Fido."""
-    import urllib.error
+def download_droid(dest_dir: Path, progress_callback: callable = None):
+    """Downloads and sets up the DROID binary and signature files."""
+    droid_url = "https://cdn.nationalarchives.gov.uk/documents/droid-binary-6.8.1-bin.zip"
+    
+    if progress_callback: progress_callback("droid", f"Downloading DROID from {droid_url}...")
+    else: print(f"Downloading DROID to '{dest_dir}'...")
 
-    if progress_callback: progress_callback("fido", f"Caching Fido signature file to '{cache_dir}'...")
-    else: print(f"Caching Fido signature file to '{cache_dir}'...")
+    dest_dir.mkdir(exist_ok=True)
+    zip_path = dest_dir / "droid.zip"
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    destination_path = cache_dir / "DROID_SignatureFile.xml"
-
-    if destination_path.exists():
-        if progress_callback: progress_callback("fido", "Signature file already exists. Skipping.")
-        else: print("...signature file already exists. Skipping.")
+    if (dest_dir / "droid.sh").exists():
+        if progress_callback: progress_callback("droid", "DROID already exists. Skipping.")
+        else: print("...DROID already exists. Skipping.")
         return
-
-    # The URL pattern for signature files seems to be versioned. We will
-    # programmatically find the latest version.
-    base_url = "https://cdn.nationalarchives.gov.uk/documents/DROID_SignatureFile_V{version}.xml"
-    start_version = 120  # Start from a recent known version
-    latest_found_version = 0
-
-    headers = {'User-Agent': 'Mozilla/5.0'}
-
-    if progress_callback: progress_callback("fido", "Finding latest PRONOM signature file version...")
-    else: print("...finding latest PRONOM signature file version...")
-
-    for version in range(start_version, start_version + 50): # Check the next 50 versions
-        url = base_url.format(version=version)
-        try:
-            req = urllib.request.Request(url, method='HEAD', headers=headers)
-            with urllib.request.urlopen(req):
-                latest_found_version = version
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                # We've gone past the latest version.
-                break
-            else:
-                if progress_callback: progress_callback("fido", f"Warning: Received unexpected HTTP status {e.code} for version {version}. Stopping search.")
-                else: print(f"...warning: Received unexpected HTTP status {e.code} for version {version}. Stopping search.")
-                break
-
-    if latest_found_version == 0:
-        if progress_callback: progress_callback("fido", "Error: Could not find a valid signature file.")
-        else: print("...error: Could not find a valid signature file. Please check the URL pattern in the script.")
-        return
-
-    latest_url = base_url.format(version=latest_found_version)
-    if progress_callback: progress_callback("fido", f"Latest version found is {latest_found_version}. Downloading from {latest_url}")
-    else: print(f"...latest version found is {latest_found_version}. Downloading from {latest_url}")
 
     try:
-        request = urllib.request.Request(latest_url, headers=headers)
-        with urllib.request.urlopen(request) as response, open(destination_path, 'wb') as out_file:
+        # Download the zip file
+        with urllib.request.urlopen(droid_url) as response, open(zip_path, 'wb') as out_file:
             out_file.write(response.read())
-        if progress_callback: progress_callback("fido", "Caching complete!")
-        else: print("...caching complete!")
+        
+        # Unzip and update signature file
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(dest_dir)
+        
+        # Ensure the droid shell script is executable
+        droid_script_path = dest_dir / "droid.sh"
+        if sys.platform != "win32":
+            droid_script_path.chmod(droid_script_path.stat().st_mode | 0o111)
+
+        # Run the signature update script
+        if progress_callback: progress_callback("droid", "Updating DROID signature file...")
+        else: print("...updating DROID signature file...")
+        subprocess.run([str(droid_script_path), "-d"], check=True, capture_output=True)
+        
+        if progress_callback: progress_callback("droid", "DROID setup complete!")
+        else: print("...DROID setup complete!")
+    except subprocess.CalledProcessError as e:
+        error_message = f"Error setting up DROID. It might require Java to be installed.\n"
+        error_message += f"Stderr: {e.stderr.decode('utf-8', errors='ignore')}"
+        if progress_callback: progress_callback("droid", error_message)
+        else: print(f"...{error_message}")
     except Exception as e:
-        if progress_callback: progress_callback("fido", f"Error: Failed to download Fido signature file: {e}")
-        else: print(f"...error: Failed to download Fido signature file: {e}")
-        if destination_path.exists():
-            destination_path.unlink() # Clean up partial download
+        if progress_callback: progress_callback("droid", f"An unexpected error occurred during DROID setup: {e}")
+        else: print(f"...error setting up DROID: {e}")
+    finally:
+        if zip_path.exists():
+            zip_path.unlink()
 
 
 def run_download():
@@ -126,7 +113,7 @@ def run_download():
 
     # Define paths relative to this script's location for robustness.
     script_dir = Path(__file__).parent
-    models_dir = script_dir / "models"
+    models_dir = script_dir / "droid"
     models_dir.mkdir(exist_ok=True)
 
     print("--- Starting asset download process ---")
@@ -144,9 +131,9 @@ def run_download():
 
     cache_tldextract_list(models_dir / 'tldextract_cache')
 
-    # Download Fido signatures if fido is configured to be used
-    if app_config.use_fido:
-        cache_fido_signatures(models_dir / 'fido_cache')
+    # Download DROID if it is configured to be used
+    if app_config.use_droid:
+        download_droid(script_dir / 'droid')
 
     print("\nAll offline assets are ready.")
     print("\n--- IMPORTANT ---")

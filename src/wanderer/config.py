@@ -54,7 +54,7 @@ class Config:
     pii_languages: List[str] = attrs.field(factory=lambda: ["en"])
     memory_limit_gb: Optional[float] = None
     embedding_model_path: Optional[str] = "models/all-MiniLM-L6-v2"
-    use_fido: bool = False
+    use_droid: bool = False
     extract_text_on_scan: bool = True
     compute_perceptual_hash: bool = True
     archive_exclude_extensions: List[str] = attrs.field(factory=lambda: [".epub", ".cbz", ".cbr"])
@@ -124,7 +124,7 @@ def load_config_with_path() -> tuple[Config, Optional[Path]]:
         memory_limit_gb=wanderer_config.get("memory_limit_gb"),
         database_path=db_path_str,
         embedding_model_path=embedding_model_path_str,
-        use_fido=wanderer_config.get("use_fido", False),
+        use_droid=wanderer_config.get("use_droid", False),
         extract_text_on_scan=wanderer_config.get("extract_text_on_scan", True),
         compute_perceptual_hash=wanderer_config.get("compute_perceptual_hash", True),
         archive_exclude_extensions=list(set(default_archive_excludes + wanderer_config.get("archive_exclude_extensions", []))),
@@ -152,7 +152,7 @@ def config_to_dict(cfg: Config) -> Dict[str, Any]:
         "pii_languages": cfg.pii_languages,
         "memory_limit_gb": cfg.memory_limit_gb,
         "embedding_model_path": cfg.embedding_model_path,
-        "use_fido": cfg.use_fido,
+        "use_droid": cfg.use_droid,
         "extract_text_on_scan": cfg.extract_text_on_scan,
         "compute_perceptual_hash": cfg.compute_perceptual_hash,
         "archive_exclude_extensions": cfg.archive_exclude_extensions,

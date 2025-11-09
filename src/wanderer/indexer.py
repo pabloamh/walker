@@ -176,40 +176,38 @@ class Indexer:
         manager = multiprocessing.Manager()
         results_queue = manager.Queue()
         # Use an Event to signal when the writer is truly finished.
-        writer_finished_event = threading.Event()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size, self.app_config, writer_finished_event))
+        writer_finished_event = manager.Event()
+        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size, writer_finished_event))
         writer_thread.start()
 
-        # If a GUI progress callback is provided, use it. Otherwise, use tqdm for CLI.
-        if self.progress_callback:
-            total = len(paths_to_process)
-            with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
-                futures = [executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit) for path in paths_to_process]
-                for i, future in enumerate(as_completed(futures)):
-                    self.progress_callback(i + 1, total, description)
-                    future.result()  # Raise any exceptions
-        else:
-            with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
-                future_to_path = {
-                    executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
-                    for path in paths_to_process
-                }
+        with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
+            # Submit all tasks to the process pool
+            future_to_path = {
+                executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
+                for path in paths_to_process
+            }
 
-                WORKER_TIMEOUT_SECONDS = 300  # 5 minutes
-                for future in tqdm(as_completed(future_to_path), total=len(future_to_path), desc=description):
-                    try:
-                        future.result(timeout=WORKER_TIMEOUT_SECONDS)
-                    except Exception as exc:
-                        path = future_to_path[future]
-                        error_message = f"Error processing '{path}': {exc}"
-                        logging.error(error_message, exc_info=True)
+            # Use tqdm for CLI progress, or just iterate if a GUI callback is provided
+            iterator = as_completed(future_to_path)
+            if not self.progress_callback:
+                iterator = tqdm(iterator, total=len(future_to_path), desc=description)
+
+            for i, future in enumerate(iterator):
+                if self.progress_callback:
+                    self.progress_callback(i + 1, len(future_to_path), description)
+                try:
+                    future.result()  # Raise exceptions from workers if any
+                except Exception as exc:
+                    path = future_to_path[future]
+                    error_message = f"Error processing '{path}': {exc}"
+                    logging.error(error_message, exc_info=True)
+                    if not self.progress_callback:
                         tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
-        # Wait for all file processing tasks to complete and be put on the queue.
-        # Then, signal the writer that no more items will be added.
-        executor.shutdown(wait=True)
-        results_queue.put(worker.sentinel)
-        writer_thread.join()
+        # Now that all workers are finished, signal the writer to stop
+        results_queue.put(worker.sentinel) # Signal the writer to finish
+        writer_finished_event.wait() # Wait for the writer to confirm it's done
+        writer_thread.join() # Cleanly join the thread
 
     def refine_unknown_files(self):
         """
@@ -222,15 +220,13 @@ class Indexer:
             click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your wanderer.toml.", fg="yellow"))
             return
     
-        click.echo("Querying database for files with unknown MIME types...")
+        click.echo("Querying database for all files to refine with Fido...")
         chunk_size = 10000
         total_refined = 0
     
         with database.get_session() as db_session:
-            query = (
-                db_session.query(models.FileIndex)
-                .filter(models.FileIndex.mime_type.in_(("application/octet-stream", "inode/x-empty")))
-            )
+            # Query for all files to do a full Fido refinement.
+            query = db_session.query(models.FileIndex)
             total_to_refine = query.count()
     
             if total_to_refine == 0:
@@ -455,7 +451,6 @@ class Indexer:
                     chunk_iterator = self._get_file_chunks(chunk_size=10000)
                     for path_chunk in chunk_iterator:
                         report_progress(pbar.n, pbar.total, "Filtering files...")
-                        # Filter chunk against the database session
                         files_to_process = self._filter_chunk(path_chunk, db_session)
                         pbar.update(len(path_chunk))
 

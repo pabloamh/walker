@@ -30,7 +30,13 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int, app_config: models.
         with database.db_lock:
             try:
                 stmt = sqlite_insert(models.FileIndex).values(current_batch)
-                update_dict = {c.name: c for c in stmt.excluded if c.name not in ["id", "path"]}
+                # Define the fields to be updated on conflict.
+                # This ensures that all metadata, including pronom_id, is updated
+                # during refinement operations.
+                update_dict = {
+                    c.name: getattr(stmt.excluded, c.name) for c in models.FileIndex.__table__.columns
+                    if c.name not in ("id", "path")
+                }
                 stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
                 session.execute(stmt)
                 session.commit()

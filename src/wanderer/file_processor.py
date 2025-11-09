@@ -164,6 +164,26 @@ class FileProcessor:
         except Exception:
             return None, None
 
+    def _extract_text_from_doc(self) -> Optional[str]:
+        """Extracts text from legacy .doc files using antiword."""
+        try:
+            # antiword writes extracted text to stdout.
+            result = subprocess.run(
+                ["antiword", "-t", str(self.file_path)],
+                capture_output=True, check=True,
+            )
+            return result.stdout.decode('utf-8', errors='ignore').strip()
+        except FileNotFoundError:
+            # Log this only once to avoid spamming the log file.
+            if not hasattr(FileProcessor, '_antiword_warning_logged'):
+                logging.warning("The 'antiword' command was not found. Text extraction from .doc files will be skipped.")
+                FileProcessor._antiword_warning_logged = True
+            return None
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
+            logging.warning(f"Antiword failed to process {self.file_path}. It may be corrupt. Stderr: {stderr.strip()}")
+            return None
+
     def _process_video(self) -> Optional[str]:
         """Extracts metadata from a video file."""
         try:
@@ -319,6 +339,11 @@ class FileProcessor:
                 for para in doc.paragraphs:
                     content += para.text + "\n"
 
+            # Legacy Microsoft Word documents
+            elif self.mime_type == "application/msword":
+                content = self._extract_text_from_doc() or ""
+
+
             # Open Document Format (ODF) files
             elif self.mime_type in (
                 "application/vnd.oasis.opendocument.text",  # .odt
@@ -346,44 +371,45 @@ class FileProcessor:
         except Exception:
             return None
 
-    def _get_pronom_id_with_fido(self) -> Optional[Tuple[str, str]]:
+    def _get_pronom_id_with_droid(self) -> Optional[Tuple[str, str]]:
         """
-        Uses Fido to get a more accurate file format identification (PRONOM ID).
-        This is slower as it involves a subprocess call, so it's used as a fallback.
+        Uses DROID to get a more accurate file format identification (PRONOM ID).
         Returns a tuple of (puid, mimetype) or None.
         """
-        if not self.app_config.use_fido:
+        if not self.app_config.use_droid:
             return None
-        try:
-            # Fido writes its output to stdout. We capture it.
-            # The '-q' flag makes the output cleaner (just the CSV).
-            # The '-input' flag is more explicit for specifying the file path.
-            # We use os.fsencode to handle non-UTF8 paths gracefully.
-            result = subprocess.run(
-                ["fido", "-q", "-input", os.fsencode(self.file_path)],
-                capture_output=True, check=True
-            )
-            
-            # Decode stdout manually, ignoring errors in case Fido's output is malformed.
-            stdout = result.stdout.decode('utf-8', errors='ignore')
-            stderr = result.stderr.decode('utf-8', errors='ignore')
 
-            # Fido output is a CSV: status,time,puid,formatname,signaturename,mimetype,basis,warning
-            # We take the first line of output, as a file can have multiple matches.
-            first_line = stdout.strip().splitlines()
-            parts = first_line[0].split(',') if first_line else []
-            puid = parts[2].strip('"')
-            mimetype = parts[5].strip('"')
+        droid_path = Path(__file__).parent / "droid" / "droid.sh"
+        if not droid_path.exists():
+            logging.error("droid.sh not found. Please run the download-assets command.")
+            return None
+
+        try:
+            # DROID command: droid.sh -a <file_path> -p <profile.droid> -R
+            # We use a temporary profile file for each run to keep it clean.
+            with tempfile.NamedTemporaryFile(suffix=".droid", delete=True) as tmp_profile:
+                profile_path = tmp_profile.name
+                command = [str(droid_path), "-a", str(self.file_path), "-p", profile_path, "-R"]
+                # We don't need the output from the command itself, just the CSV it generates.
+                subprocess.run(command, check=True, capture_output=True)
+
+                # DROID exports results to a CSV file next to the profile file.
+                csv_path = Path(f"{profile_path.rsplit('.', 1)[0]}.csv")
+                if not csv_path.exists():
+                    return None
+
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    # Skip header and read the first line of data
+                    f.readline()
+                    first_line = f.readline().strip()
+
+            parts = first_line.split(',') if first_line else []
+            puid = parts[14].strip('"') if len(parts) > 14 else None
+            mimetype = parts[15].strip('"') if len(parts) > 15 else None
             return puid, mimetype
-        except FileNotFoundError:
-            logging.error("The 'fido' command was not found. Please ensure 'opf-fido' is installed and in your system's PATH.")
-            return None
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ''
-            logging.warning(f"Fido failed to process {self.file_path}. It may be corrupt. Fido stderr: {stderr.strip()}")
-            return None
-        except IndexError:
-            logging.warning(f"Fido returned unexpected output for {self.file_path}. Could not parse PRONOM ID.")
+
+        except (subprocess.CalledProcessError, FileNotFoundError, IndexError) as e:
+            logging.warning(f"DROID failed to process {self.file_path}. It may be corrupt or DROID is not configured. Error: {e}")
             return None
 
     def process(self) -> Generator[FileMetadata, None, None]:
@@ -405,17 +431,20 @@ class FileProcessor:
             if not self.file_path.is_file():
                 return
 
+            # 1. Get a baseline MIME type from libmagic.
             self.mime_type = magic.from_file(str(self.file_path), mime=True)
             pronom_id = None
 
-            # If Fido is enabled, always run it to get a PRONOM ID.
-            if self.app_config.use_fido:
-                fido_result = self._get_pronom_id_with_fido()
-                if fido_result:
-                    pronom_id, fido_mimetype = fido_result
-                    if fido_mimetype and fido_mimetype != "application/octet-stream":
-                        self.mime_type = fido_mimetype
-            
+            # 2. If DROID is enabled, use it to get a more accurate PRONOM ID and potentially a better MIME type.
+            if self.app_config.use_droid:
+                droid_result = self._get_pronom_id_with_droid()
+                if droid_result and droid_result[0]:  # Check if a PUID was returned
+                    puid, droid_mimetype = droid_result
+                    pronom_id = puid
+                    # Only override the magic MIME type if DROID provides a more specific one
+                    # and the original was generic.
+                    if droid_mimetype and droid_mimetype not in ("application/octet-stream", ""):
+                        self.mime_type = droid_mimetype
             metadata_kwargs = {
                 "path": self.virtual_path,
                 "filename": self.file_path.name,

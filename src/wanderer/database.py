@@ -3,7 +3,6 @@ from sqlalchemy import create_engine
 from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from threading import Lock
 from .models import Base
 from . import config
 
@@ -11,15 +10,15 @@ engine = None
 SessionLocal = None
 
 
-# A lock to ensure only one thread writes to the DB at a time.
-db_lock = Lock()
-
-def init_db():
+def init_db(force_recreate: bool = False):
     """Creates the database tables."""
     global engine, SessionLocal
-    if engine:
+    # If the engine already exists in this process, don't re-initialize
+    # unless forced to do so. This is important for multi-process safety.
+    if engine and not force_recreate:
         return
 
+    # Load config within the function to ensure it's fresh for each process.
     app_config = config.load_config()
     database_url = f"sqlite:///{app_config.database_path}"
 
@@ -30,7 +29,9 @@ def init_db():
 @contextmanager
 def get_session():
     """Provide a transactional scope around a series of operations."""
-    db_session = SessionLocal()
+    if not SessionLocal:
+        init_db()
+    db_session = SessionLocal() # type: ignore
     try:
         yield db_session
     finally:

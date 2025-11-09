@@ -89,9 +89,9 @@
      </property>
      <layout class="QFormLayout" name="file_processing_layout">
       <item row="0" column="1">
-       <widget class="QCheckBox" name="use_fido_switch">
+       <widget class="QCheckBox" name="use_droid_switch">
         <property name="text">
-         <string>Use Fido for accurate file type identification</string>
+         <string>Use DROID for accurate file type identification (requires Java)</string>
         </property>
        </widget>
       </item>
