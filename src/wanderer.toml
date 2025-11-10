@@ -10,11 +10,11 @@ pii_languages = [
     "en",
 ]
 embedding_model_path = "/home/pablomh/Projects/walker/src/wanderer/models/all-MiniLM-L6-v2"
-use_droid = true
+use_droid = false
 extract_text_on_scan = true
 compute_perceptual_hash = true
 archive_exclude_extensions = [
-    ".epub",
     ".cbz",
     ".cbr",
+    ".epub",
 ]

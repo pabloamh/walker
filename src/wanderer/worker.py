@@ -27,14 +27,17 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int, app_config: models.
     def commit_batch(session: Session, current_batch: list):
         if not current_batch:
             return 0
-        with database.db_lock:
+        with database.db_lock: # This lock is now defined in database.py
             try:
                 stmt = sqlite_insert(models.FileIndex).values(current_batch)
                 # Define the fields to be updated on conflict.
                 # This ensures that all metadata, including pronom_id, is updated
                 # during refinement operations.
                 update_dict = {
-                    c.name: getattr(stmt.excluded, c.name) for c in models.FileIndex.__table__.columns
+                    # Use getattr(stmt.excluded, c.name) to refer to the new values
+                    # that would have been inserted.
+                    c.name: getattr(stmt.excluded, c.name)
+                    for c in models.FileIndex.__table__.columns
                     if c.name not in ("id", "path")
                 }
                 stmt = stmt.on_conflict_do_update(index_elements=['path'], set_=update_dict)
@@ -48,6 +51,8 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int, app_config: models.
         current_batch.clear()
         return count
 
+    # Initialize the database connection within this thread/process.
+    database.init_db()
     with database.SessionLocal() as db_session:
         click.echo("DB writer worker started.")
         batch = []
@@ -67,6 +72,7 @@ def db_writer_worker(db_queue: queue.Queue, batch_size: int, app_config: models.
 
     if total_processed > 0:
         click.echo(f"DB writer finished. A total of {total_processed} records were written.")
+    finished_event.set()
 
 
 def set_memory_limit(limit_gb: Optional[float]):
@@ -81,9 +87,11 @@ def set_memory_limit(limit_gb: Optional[float]):
 
 def process_file_wrapper(path: Path, app_config: models.Config, shared_queue: queue.Queue, memory_limit_gb: Optional[float]) -> bool:
     warnings.filterwarnings("ignore", category=Image.DecompressionBombWarning)
+    # Initialize the database connection within the new process.
+    database.init_db()
     set_memory_limit(memory_limit_gb)
     from .file_processor import FileProcessor
-    processor = FileProcessor(path, app_config=app_config)
+    processor = FileProcessor(path, app_config)
     count = 0
     for metadata in processor.process():
         shared_queue.put(metadata)

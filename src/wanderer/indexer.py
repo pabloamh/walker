@@ -2,6 +2,7 @@
 import logging
 import multiprocessing
 from datetime import datetime
+import queue
 import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -173,15 +174,18 @@ class Indexer:
             paths_to_process: A list of file paths to be processed by the workers.
             description: A description for the tqdm progress bar.
         """
+        # A Manager is required to create a Queue that can be shared between processes
+        # created by the ProcessPoolExecutor. A standard queue.Queue will not work.
         manager = multiprocessing.Manager()
         results_queue = manager.Queue()
-        # Use an Event to signal when the writer is truly finished.
-        writer_finished_event = manager.Event()
-        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size, writer_finished_event))
+
+        # Use a threading.Event to signal when the writer is truly finished.
+        writer_finished_event = threading.Event()
+        writer_thread = threading.Thread(target=worker.db_writer_worker, args=(results_queue, self.app_config.db_batch_size, self.app_config, writer_finished_event))
         writer_thread.start()
 
         with ProcessPoolExecutor(max_workers=self.final_workers) as executor:
-            # Submit all tasks to the process pool
+            # Submit all tasks to the process pool, passing the process-safe queue.
             future_to_path = {
                 executor.submit(worker.process_file_wrapper, path, self.app_config, results_queue, self.final_memory_limit): path
                 for path in paths_to_process
@@ -204,10 +208,13 @@ class Indexer:
                     if not self.progress_callback:
                         tqdm.write(click.style(f"\n{error_message}", fg="red"), file=sys.stderr)
 
-        # Now that all workers are finished, signal the writer to stop
-        results_queue.put(worker.sentinel) # Signal the writer to finish
-        writer_finished_event.wait() # Wait for the writer to confirm it's done
-        writer_thread.join() # Cleanly join the thread
+        # Wait for the queue to be fully processed before signaling the writer to stop.
+        # This prevents a race condition where the sentinel is processed before all items are written.
+        results_queue.join()
+        results_queue.put(worker.sentinel)  # Signal the writer to finish
+        writer_finished_event.wait()  # Wait for the writer to confirm it's done
+        writer_thread.join()  # Cleanly join the thread
+
 
     def refine_unknown_files(self):
         """

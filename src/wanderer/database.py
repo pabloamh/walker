@@ -1,6 +1,7 @@
 # wanderer/database.py
 from sqlalchemy import create_engine
 from contextlib import contextmanager
+import threading
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from .models import Base
@@ -8,15 +9,14 @@ from . import config
 
 engine = None
 SessionLocal = None
+db_lock = threading.Lock()
 
 
 def init_db(force_recreate: bool = False):
     """Creates the database tables."""
     global engine, SessionLocal
-    # If the engine already exists in this process, don't re-initialize
-    # unless forced to do so. This is important for multi-process safety.
-    if engine and not force_recreate:
-        return
+    if engine is not None and not force_recreate:
+        return # Already initialized in this process
 
     # Load config within the function to ensure it's fresh for each process.
     app_config = config.load_config()

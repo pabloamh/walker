@@ -60,30 +60,30 @@ def get_pii_analyzer() -> AnalyzerEngine:
     # We also configure the NER model to ignore irrelevant entity types.
     from presidio_analyzer.nlp_engine import NlpEngineProvider
     from presidio_analyzer.recognizer_registry import RecognizerRegistry
-
-    # These are common spaCy entities that are not PII. Ignoring them reduces noise.
-    labels_to_ignore = [
-        "CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW",
-        "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PRODUCT",
-        "QUANTITY", "TIME", "WORK_OF_ART"
-    ]
-
-    provider_config = {
-        "nlp_engine_name": "spacy",
-        "models": [
-            {"lang_code": lang, "model_name": config.get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
-            for lang in app_config.pii_languages
+    
+    @functools.lru_cache(maxsize=None)
+    def _load_analyzer():
+        app_config = config.load_config()
+        # These are common spaCy entities that are not PII. Ignoring them reduces noise.
+        labels_to_ignore = [
+            "CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW",
+            "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PRODUCT",
+            "QUANTITY", "TIME", "WORK_OF_ART"
         ]
-    }
-
-    provider = NlpEngineProvider(nlp_configuration=provider_config)
-    nlp_engine = provider.create_engine()
-
-    # Create a registry and explicitly load recognizers for the supported languages
-    registry = RecognizerRegistry(supported_languages=app_config.pii_languages)
-    registry.load_predefined_recognizers(languages=app_config.pii_languages)
-
-    return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
+        provider_config = {
+            "nlp_engine_name": "spacy",
+            "models": [
+                {"lang_code": lang, "model_name": config.get_spacy_model_name(lang), "ner_model_configuration": {"labels_to_ignore": labels_to_ignore}}
+                for lang in app_config.pii_languages
+            ]
+        }
+        provider = NlpEngineProvider(nlp_configuration=provider_config)
+        nlp_engine = provider.create_engine()
+        registry = RecognizerRegistry(supported_languages=app_config.pii_languages)
+        registry.load_predefined_recognizers(languages=app_config.pii_languages)
+        return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry, supported_languages=app_config.pii_languages)
+    
+    return _load_analyzer()
 
 # Default filenames and extensions to exclude from processing.
 # These are checked case-insensitively.
@@ -250,7 +250,6 @@ class FileProcessor:
                     virtual_path = f"{self.virtual_path}/{extracted_file.relative_to(temp_path)}"
                     processor = FileProcessor(extracted_file, self.app_config, virtual_path=virtual_path, is_archived=True)
                     yield from processor.process()
-
         except (zipfile.BadZipFile, tarfile.TarError, Exception) as e:
             logging.warning(f"Could not process archive {self.file_path}: {e}")
             return # Stop processing this archive if an error occurs
@@ -431,20 +430,28 @@ class FileProcessor:
             if not self.file_path.is_file():
                 return
 
-            # 1. Get a baseline MIME type from libmagic.
-            self.mime_type = magic.from_file(str(self.file_path), mime=True)
+            # 1. Get a baseline MIME type from libmagic, with robust error handling.
+            try:
+                self.mime_type = magic.from_file(str(self.file_path), mime=True)
+            except Exception as e:
+                # This can happen if libmagic is not installed or configured correctly.
+                # We log a warning and fall back to a generic MIME type to prevent a crash.
+                logging.warning(f"Could not determine MIME type for {self.file_path} using python-magic: {e}. "
+                                f"Please ensure 'libmagic' is installed on your system. Falling back to generic type.")
+                self.mime_type = "application/octet-stream"
             pronom_id = None
 
-            # 2. If DROID is enabled, use it to get a more accurate PRONOM ID and potentially a better MIME type.
-            if self.app_config.use_droid:
-                droid_result = self._get_pronom_id_with_droid()
-                if droid_result and droid_result[0]:  # Check if a PUID was returned
-                    puid, droid_mimetype = droid_result
-                    pronom_id = puid
-                    # Only override the magic MIME type if DROID provides a more specific one
-                    # and the original was generic.
-                    if droid_mimetype and droid_mimetype not in ("application/octet-stream", ""):
-                        self.mime_type = droid_mimetype
+            # 2. If DROID is enabled, use it to get a more accurate PRONOM ID.
+            # --- Temporarily Disabled for Debugging ---
+            # The following block is commented out to test if the DROID subprocess
+            # is causing silent worker crashes.
+            # if self.app_config.use_droid:
+            #     droid_result = self._get_pronom_id_with_droid()
+            #     if droid_result and droid_result[0]:  # Check if a PUID was returned
+            #         puid, droid_mimetype = droid_result
+            #         pronom_id = puid
+            #         if droid_mimetype and droid_mimetype not in ("application/octet-stream", ""):
+            #             self.mime_type = droid_mimetype
             metadata_kwargs = {
                 "path": self.virtual_path,
                 "filename": self.file_path.name,

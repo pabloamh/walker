@@ -60,7 +60,6 @@ class Config:
     archive_exclude_extensions: List[str] = attrs.field(factory=lambda: [".epub", ".cbz", ".cbr"])
 
 
-@functools.lru_cache(maxsize=1)
 def load_config_with_path() -> tuple[Config, Optional[Path]]:
     """
     Loads configuration from 'wanderer.toml'.
