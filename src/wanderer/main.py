@@ -2,10 +2,27 @@
 import logging
 from pathlib import Path
 from typing import Optional, Tuple
+import os
+import sys
 
 import click
 
 from . import config, database, log_manager
+
+def setup_environment():
+    """
+    Set up the environment for DROID and other subprocesses.
+
+    This function ensures that the portable Java runtime is used and that
+    the necessary scripts are executable. It should be called once at startup.
+    """
+    # The script_dir should be the 'wanderer' directory.
+    script_dir = Path(__file__).parent.resolve()
+
+    # Ensure the DROID shell script is executable
+    droid_script_path = script_dir / "droid" / "droid.sh"
+    if sys.platform != "win32" and droid_script_path.exists():
+        droid_script_path.chmod(droid_script_path.stat().st_mode | 0o111)
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""
@@ -64,6 +81,8 @@ def cli():
     """A powerful file indexer and query tool."""
     # Set up logging as soon as the CLI is invoked.
     setup_logging()
+    # Set up the environment for subprocesses like DROID.
+    setup_environment()
 
 @cli.command(name="index")
 @click.argument('root_paths', nargs=-1, required=False, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))

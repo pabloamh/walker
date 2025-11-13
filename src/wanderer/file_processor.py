@@ -378,33 +378,58 @@ class FileProcessor:
         if not self.app_config.use_droid:
             return None
 
-        droid_path = Path(__file__).parent / "droid" / "droid.sh"
+        script_dir = Path(__file__).parent
+        droid_path = script_dir / "droid" / "droid.sh"
         if not droid_path.exists():
             logging.error("droid.sh not found. Please run the download-assets command.")
             return None
+
+        # The environment (JAVA_HOME, PATH) and script permissions are now set
+        # at application startup in main.py. We can call the subprocess directly.
+        
+        # Set up the environment for the subprocess to use our portable Java
+        java_home_path = script_dir / "java"
+        env = os.environ.copy()
+        if java_home_path.exists():
+            env["JAVA_HOME"] = str(java_home_path.resolve())
 
         try:
             # DROID command: droid.sh -a <file_path> -p <profile.droid> -R
             # We use a temporary profile file for each run to keep it clean.
             with tempfile.NamedTemporaryFile(suffix=".droid", delete=True) as tmp_profile:
                 profile_path = tmp_profile.name
-                command = [str(droid_path), "-a", str(self.file_path), "-p", profile_path, "-R"]
-                # We don't need the output from the command itself, just the CSV it generates.
-                subprocess.run(command, check=True, capture_output=True)
+                # Ensure the path passed to the subprocess is fully resolved and absolute.
+                resolved_file_path = str(self.file_path.resolve())
+                command = [str(droid_path), "-a", resolved_file_path, "-p", profile_path, "-R"]
+                subprocess.run(command, check=True, capture_output=True, env=env)
 
                 # DROID exports results to a CSV file next to the profile file.
                 csv_path = Path(f"{profile_path.rsplit('.', 1)[0]}.csv")
                 if not csv_path.exists():
                     return None
 
-                with open(csv_path, 'r', encoding='utf-8') as f:
-                    # Skip header and read the first line of data
-                    f.readline()
+                with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    # Make parsing robust by reading the header to find column indices.
+                    header = f.readline().strip().split(',')
+                    try:
+                        puid_index = header.index("PUID")
+                        mimetype_index = header.index("MIME_TYPE")
+                    except ValueError:
+                        logging.error(f"Could not find 'PUID' or 'MIME_TYPE' in DROID CSV header for {self.file_path}. Header: {header}")
+                        return None
+
                     first_line = f.readline().strip()
+                    # Log the raw data for debugging purposes
+                    logging.info(f"DROID raw output for {self.file_path}: Header={header}, Line={first_line}")
 
             parts = first_line.split(',') if first_line else []
-            puid = parts[14].strip('"') if len(parts) > 14 else None
-            mimetype = parts[15].strip('"') if len(parts) > 15 else None
+            if not parts or len(parts) <= max(puid_index, mimetype_index):
+                logging.warning(f"DROID output for {self.file_path} was empty or had too few columns.")
+                return None
+
+            puid = parts[puid_index].strip('"')
+            mimetype = parts[mimetype_index].strip('"')
+
             return puid, mimetype
 
         except (subprocess.CalledProcessError, FileNotFoundError, IndexError) as e:
@@ -442,16 +467,13 @@ class FileProcessor:
             pronom_id = None
 
             # 2. If DROID is enabled, use it to get a more accurate PRONOM ID.
-            # --- Temporarily Disabled for Debugging ---
-            # The following block is commented out to test if the DROID subprocess
-            # is causing silent worker crashes.
-            # if self.app_config.use_droid:
-            #     droid_result = self._get_pronom_id_with_droid()
-            #     if droid_result and droid_result[0]:  # Check if a PUID was returned
-            #         puid, droid_mimetype = droid_result
-            #         pronom_id = puid
-            #         if droid_mimetype and droid_mimetype not in ("application/octet-stream", ""):
-            #             self.mime_type = droid_mimetype
+            if self.app_config.use_droid:
+                droid_result = self._get_pronom_id_with_droid()
+                if droid_result and droid_result[0]:  # Check if a PUID was returned
+                    puid, droid_mimetype = droid_result
+                    pronom_id = puid
+                    if droid_mimetype and droid_mimetype not in ("application/octet-stream", ""):
+                        self.mime_type = droid_mimetype
             metadata_kwargs = {
                 "path": self.virtual_path,
                 "filename": self.file_path.name,

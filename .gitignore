@@ -1,10 +1,16 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+
+# C extensions
 *.so
 
 # Distribution / packaging
+.Python
 build/
+develop-eggs/
 dist/
 downloads/
 eggs/
@@ -17,24 +23,12 @@ var/
 wheels/
 *.egg-info/
 
-# Virtual Environments
-.env
-.venv
-env/
-venv/
+# Downloaded application assets
+/src/wanderer/droid/
+/src/wanderer/java/
+/src/wanderer/assets/
 
-# Test & Coverage Reports
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Database
-*.db
-
-# OS-generated files
-.DS_Store
-Thumbs.db
-
-# Downloaded offline assets
-src/wanderer/models/
-src/wanderer/fido_cache/
+# User-specific configuration, database, and log files
+wanderer.toml
+wanderer.db
+wanderer.log

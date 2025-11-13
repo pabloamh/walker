@@ -1,10 +1,12 @@
 # download_assets.py
 import os
+import platform
 import spacy
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
-
+import zipfile
 from . import config, file_processor
 
 from sentence_transformers import SentenceTransformer
@@ -58,6 +60,76 @@ def cache_tldextract_list(cache_dir: Path, progress_callback: callable = None):
         if progress_callback: progress_callback("tldextract", f"Error caching tldextract: {e}")
         else: print(f"...error caching tldextract: {e}")
 
+def download_java(dest_dir: Path, progress_callback: callable = None):
+    """Downloads and extracts a portable Java JRE for DROID."""
+    java_dir = dest_dir / "java"
+    java_executable_path_win = java_dir / "bin" / "java.exe"
+    java_executable_path_unix = java_dir / "bin" / "java"
+
+    if java_executable_path_win.exists() or java_executable_path_unix.exists():
+        if progress_callback: progress_callback("java", "Java runtime already exists. Skipping.")
+        else: print("...Java runtime already exists. Skipping.")
+        return
+
+    # Determine the correct download URL based on OS and architecture
+    os_map = {"linux": "linux", "darwin": "macos", "win32": "win"}
+    arch_map = {"amd64": "x64", "x86_64": "x64", "aarch64": "aarch64", "arm64": "aarch64"}
+    
+    os_key = os_map.get(sys.platform)
+    arch_key = arch_map.get(platform.machine().lower())
+
+    if not os_key or not arch_key:
+        message = f"Unsupported OS/architecture for automatic Java download: {sys.platform}/{platform.machine()}"
+        if progress_callback: progress_callback("java", message)
+        else: print(message)
+        return
+
+    # Corrected URL pattern based on user feedback.
+    # Format: zulu<zulu_version>-ca-jre<java_version>-<os>_<arch>.zip
+    zulu_version = "21.46.19"
+    java_version = "21.0.9"
+
+    # Handle platform-specific naming conventions in the URL.
+    if os_key == "macos" and arch_key == "aarch64":
+        platform_str = "macosx_aarch64"
+    else:
+        platform_str = f"{os_key}_{arch_key}"
+
+    base_url = "https://cdn.azul.com/zulu/bin/"
+    file_name = f"zulu{zulu_version}-ca-jre{java_version}-{platform_str}.zip"
+    java_url = f"{base_url}{file_name}"
+
+    if progress_callback: progress_callback("java", f"Downloading Java from {java_url}...")
+    else: print(f"Downloading Java JRE to '{java_dir}'...")
+
+    java_dir.mkdir(exist_ok=True, parents=True)
+    zip_path = java_dir / "java.zip"
+
+    try:
+        with urllib.request.urlopen(java_url) as response, open(zip_path, 'wb') as out_file:
+            out_file.write(response.read())
+
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Extract and strip the top-level directory
+            for member in zip_ref.infolist():
+                # Remove the top-level folder from the path
+                new_path = Path(*Path(member.filename).parts[1:])
+                target_path = java_dir / new_path
+                if member.is_dir():
+                    target_path.mkdir(exist_ok=True, parents=True)
+                else:
+                    target_path.parent.mkdir(exist_ok=True, parents=True)
+                    target_path.write_bytes(zip_ref.read(member.filename))
+        
+        if progress_callback: progress_callback("java", "Java setup complete!")
+        else: print("...Java setup complete!")
+    except Exception as e:
+        if progress_callback: progress_callback("java", f"An unexpected error occurred during Java setup: {e}")
+        else: print(f"...error setting up Java: {e}")
+    finally:
+        if zip_path.exists():
+            zip_path.unlink()
+
 def download_droid(dest_dir: Path, progress_callback: callable = None):
     """Downloads and sets up the DROID binary and signature files."""
     droid_url = "https://cdn.nationalarchives.gov.uk/documents/droid-binary-6.8.1-bin.zip"
@@ -83,16 +155,23 @@ def download_droid(dest_dir: Path, progress_callback: callable = None):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(dest_dir)
         
-        # Ensure the droid shell script is executable
+        # --- CRITICAL FIX ---
+        # Ensure the droid shell script is executable *before* trying to run it.
         droid_script_path = dest_dir / "droid.sh"
-        if sys.platform != "win32":
+        if sys.platform != "win32" and droid_script_path.exists():
             droid_script_path.chmod(droid_script_path.stat().st_mode | 0o111)
 
-        # Run the signature update script
+        # Run the signature update script. This requires Java to be present.
         if progress_callback: progress_callback("droid", "Updating DROID signature file...")
         else: print("...updating DROID signature file...")
-        subprocess.run([str(droid_script_path), "-d"], check=True, capture_output=True)
-        
+
+        # Set up the environment for the subprocess to use our portable Java
+        java_home_path = dest_dir.parent / "java"
+        env = os.environ.copy()
+        if java_home_path.exists():
+            env["JAVA_HOME"] = str(java_home_path.resolve())
+        subprocess.run([str(droid_script_path), "-d"], check=True, capture_output=True, env=env, text=True)
+
         if progress_callback: progress_callback("droid", "DROID setup complete!")
         else: print("...DROID setup complete!")
     except subprocess.CalledProcessError as e:
@@ -113,7 +192,7 @@ def run_download():
 
     # Define paths relative to this script's location for robustness.
     script_dir = Path(__file__).parent
-    models_dir = script_dir / "droid"
+    models_dir = script_dir / "assets"
     models_dir.mkdir(exist_ok=True)
 
     print("--- Starting asset download process ---")
@@ -133,6 +212,8 @@ def run_download():
 
     # Download DROID if it is configured to be used
     if app_config.use_droid:
+        # Download Java first, as DROID's setup script requires it.
+        download_java(script_dir)
         download_droid(script_dir / 'droid')
 
     print("\nAll offline assets are ready.")

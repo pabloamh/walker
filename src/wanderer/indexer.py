@@ -218,37 +218,39 @@ class Indexer:
 
     def refine_unknown_files(self):
         """
-        Finds files with generic MIME types in the database and re-processes them
-        using Fido for better identification.
+        Finds all files in the database and re-processes them using DROID
+        for better identification.
         """
         self._prepare_settings()
     
-        if not self.app_config.use_fido:
-            click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your wanderer.toml.", fg="yellow"))
+        if not self.app_config.use_droid:
+            click.echo(click.style("DROID is not enabled. Please set 'use_droid = true' in your wanderer.toml.", fg="yellow"))
             return
     
-        click.echo("Querying database for all files to refine with Fido...")
+        click.echo("Querying database for all files to refine with DROID...")
         chunk_size = 10000
         total_refined = 0
     
         with database.get_session() as db_session:
-            # Query for all files to do a full Fido refinement.
+            # Query for all files to do a full DROID refinement.
             query = db_session.query(models.FileIndex)
             total_to_refine = query.count()
     
             if total_to_refine == 0:
-                click.echo("No files with unknown MIME types found to refine.")
+                click.echo("No files found in the database to refine.")
                 return
     
-            click.echo(f"Found {total_to_refine} files to refine with Fido. Processing in chunks...")
+            click.echo(f"Found {total_to_refine} files to refine with DROID. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
-                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                # Explicitly resolve the path before checking existence to ensure correctness,
+                # regardless of the current working directory.
+                paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
                     self._execute_processing_pool(paths_to_process, f"Refining chunk {i//chunk_size + 1}")
                     total_refined += len(paths_to_process)
     
-        click.echo(f"File refinement process complete. {total_refined} files were re-processed.")
+        click.echo(f"DROID refinement process complete. {total_refined} files were re-processed.")
 
     def refine_text_content(self):
         """
@@ -288,7 +290,7 @@ class Indexer:
             click.echo(f"Found {total_to_refine} files to process for text content. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
-                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
                     self._execute_processing_pool(paths_to_process, f"Extracting text in chunk {i//chunk_size + 1}")
                     total_refined += len(paths_to_process)
@@ -326,7 +328,7 @@ class Indexer:
             click.echo(f"Found {total_to_refine} files to process for text content. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
-                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
                     self._execute_processing_pool(paths_to_process, f"Extracting text in chunk {i//chunk_size + 1}")
                     total_refined += len(paths_to_process)
@@ -370,7 +372,7 @@ class Indexer:
             click.echo(f"Found {total_to_refine} images to process for perceptual hashes. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
-                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
                     self._execute_processing_pool(paths_to_process, f"Computing p-hashes in chunk {i//chunk_size + 1}")
                     total_refined += len(paths_to_process)
@@ -406,7 +408,7 @@ class Indexer:
             click.echo(f"Found {total_to_refine} files to refine with Fido. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
-                paths_to_process = [Path(f.path) for f in chunk if Path(f.path).exists()]
+                paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
                     self._execute_processing_pool(paths_to_process, f"Fido-refining chunk {i//chunk_size + 1}")
                     total_refined += len(paths_to_process)

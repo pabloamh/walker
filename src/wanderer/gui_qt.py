@@ -64,13 +64,20 @@ class AssetCheckWorker(QObject):
             "green" if pii_ok else "orange", pii_ok
         )
 
-        # 3. Check Fido Signatures
+        # 3. Check DROID
         self.checking_asset.emit("droid")
         droid_path = script_dir / "droid" / "droid.sh"
-        fido_ok = droid_path.is_file()
+        droid_ok = droid_path.is_file()
         self.status_updated.emit(
-            "droid", "Available" if fido_ok else "Not Found",
-            "green" if fido_ok else "orange", fido_ok
+            "droid", "Available" if droid_ok else "Not Found", "green" if droid_ok else "orange", droid_ok
+        )
+
+        # 4. Check Java Runtime
+        self.checking_asset.emit("java")
+        java_path = script_dir / "java" / "bin"
+        java_ok = java_path.is_dir() and (java_path / "java").exists() or (java_path / "java.exe").exists()
+        self.status_updated.emit(
+            "java", "Available" if java_ok else "Not Found", "green" if java_ok else "orange", java_ok
         )
 
         self.finished.emit()
@@ -102,10 +109,12 @@ class AssetDownloadWorker(QObject):
             for lang in self.app_config.pii_languages:
                 model_name = config.get_spacy_model_name(lang)
                 download_assets.download_spacy_model(model_name, lang,
-                                                     progress_callback=self.progress.emit)
+                                           progress_callback=self.progress.emit)
         elif self.asset_type == "droid":
             download_assets.download_droid(script_dir / 'droid',
                                            progress_callback=self.progress.emit)
+        elif self.asset_type == "java":
+            download_assets.download_java(script_dir, progress_callback=self.progress.emit)
         
         self.finished.emit()
 #</editor-fold>
@@ -136,7 +145,7 @@ class OfflineAssetsWidget(QWidget):
         main_layout.addLayout(controls_layout)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 3) # 3 assets to check
+        self.progress_bar.setRange(0, 4) # 4 assets to check
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         main_layout.addWidget(self.progress_bar)
@@ -155,7 +164,12 @@ class OfflineAssetsWidget(QWidget):
         self.droid_status_label = QLabel("Unknown")
         self.droid_download_button = QPushButton("Download")
         self.droid_download_button.clicked.connect(lambda: self.start_download("droid"))
-        form_layout.addRow("DROID/PRONOM Signatures:", self._create_asset_row(self.droid_status_label, self.droid_download_button))
+        form_layout.addRow("DROID Binary:", self._create_asset_row(self.droid_status_label, self.droid_download_button))
+
+        self.java_status_label = QLabel("Unknown")
+        self.java_download_button = QPushButton("Download")
+        self.java_download_button.clicked.connect(lambda: self.start_download("java"))
+        form_layout.addRow("Java Runtime (for DROID):", self._create_asset_row(self.java_status_label, self.java_download_button))
 
         # Keep track of the currently running thread to prevent multiple operations
         self.active_thread = None
@@ -209,6 +223,7 @@ class OfflineAssetsWidget(QWidget):
             "embedding": (self.embedding_status_label, self.embedding_download_button),
             "pii": (self.pii_status_label, self.pii_download_button),
             "droid": (self.droid_status_label, self.droid_download_button),
+            "java": (self.java_status_label, self.java_download_button),
         }
 
     @Slot(str)
@@ -232,8 +247,8 @@ class OfflineAssetsWidget(QWidget):
         download_button.setText("Downloaded" if is_downloaded else "Download")
         download_button.setEnabled(not is_downloaded)
 
-        # Special case for Fido button
-        if asset_name == "droid" and not self.app_config.use_droid:
+        # Special case for DROID/Java buttons
+        if asset_name in ("java", "droid") and not self.app_config.use_droid:
             download_button.setEnabled(False)
 
     @Slot(str, str)
@@ -933,7 +948,13 @@ class ReportsViewWidget(QWidget):
         self.active_thread = QThread(self)
         self.worker = GenericWorker(report_function, *args, **kwargs)
         self.worker.moveToThread(self.active_thread)
+
+        # --- Correct, robust cleanup pattern for QThread ---
+        # 1. When the worker's task is done, tell the thread's event loop to quit.
         self.worker.finished.connect(on_finish_slot)
+        self.worker.finished.connect(self.active_thread.quit)
+        # 2. When the thread's event loop has finished, schedule both for deletion.
+        self.active_thread.finished.connect(self.worker.deleteLater)
         self.active_thread.finished.connect(self.active_thread.deleteLater)
         self.worker.error.connect(lambda msg: QMessageBox.critical(self, "Report Error", msg))
         self.active_thread.started.connect(self.worker.run)

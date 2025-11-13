@@ -29,15 +29,13 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 - **Flexible Configuration**: Uses a `walker.toml` file for persistent settings and supports command-line overrides.
 - **Automatic File Filtering**: Ignores common temporary and system files (e.g., `.swp`, `.tmp`, `.DS_Store`, `Thumbs.db`).
 ## Quick Start
-
-1.  **Install prerequisites** (Python 3.11+, Poetry, `libmagic`, `mediainfo`).
-1.  **Install prerequisites** (Python 3.11+, Poetry, Java, `libmagic`, `mediainfo`).
+1.  **Install prerequisites** (Python 3.11+, Poetry, `libmagic`, `mediainfo`, `antiword`).
     ```sh
     git clone <your-repo-url>
     cd wanderer
     poetry install
     ```
-3.  **Download offline assets** (AI models, etc.):
+2.  **Download offline assets** (AI models, Java runtime, etc.):
     ```sh
     poetry run wanderer download-assets
     ```
@@ -49,18 +47,18 @@ A powerful and efficient file indexer that recursively scans directories, extrac
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+Before you begin, ensure you have the following installed on your system:
 -   **Python 3.11+**
 -   **Poetry** for managing Python dependencies
--   **Java**: Required to run the DROID tool for file identification.
 -   **`libmagic`**: Required by the `python-magic` library for MIME type detection.
 -   **`mediainfo`**: Required for video metadata extraction.
+-   **`antiword`**: Required for extracting text from legacy Microsoft Word (`.doc`) files.
 
-### System Dependency Installation
+### On Linux
 
-**On Debian/Ubuntu:**
+**On Debian/Ubuntu-based systems:**
 ```bash
-sudo apt-get update && sudo apt-get install default-jre libmagic1 mediainfo
+sudo apt-get update && sudo apt-get install -y libmagic1 mediainfo antiword
 ```
 
 **On macOS (using Homebrew):**
