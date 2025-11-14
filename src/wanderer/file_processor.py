@@ -383,57 +383,46 @@ class FileProcessor:
         if not droid_path.exists():
             logging.error("droid.sh not found. Please run the download-assets command.")
             return None
-
-        # The environment (JAVA_HOME, PATH) and script permissions are now set
-        # at application startup in main.py. We can call the subprocess directly.
-        
-        # Set up the environment for the subprocess to use our portable Java
         java_home_path = script_dir / "java"
         env = os.environ.copy()
         if java_home_path.exists():
             env["JAVA_HOME"] = str(java_home_path.resolve())
+            java_bin_path = java_home_path / "bin"
+            env["PATH"] = f"{str(java_bin_path.resolve())}{os.pathsep}{os.environ.get('PATH', '')}"
 
         try:
-            # DROID command: droid.sh -a <file_path> -p <profile.droid> -R
-            # We use a temporary profile file for each run to keep it clean.
-            with tempfile.NamedTemporaryFile(suffix=".droid", delete=True) as tmp_profile:
-                profile_path = tmp_profile.name
-                # Ensure the path passed to the subprocess is fully resolved and absolute.
-                resolved_file_path = str(self.file_path.resolve())
-                command = [str(droid_path), "-a", resolved_file_path, "-p", profile_path, "-R"]
-                subprocess.run(command, check=True, capture_output=True, env=env)
+            # DROID command: droid.sh -co "PUID,MIME_TYPE" -a <file_path>
+            # This command prints the PUID and MIME type for the given file to stdout. Each column is a separate argument.
+            resolved_file_path = str(self.file_path.resolve())
+            command = [str(droid_path), "-co", "PUID", "MIME_TYPE", "-a", resolved_file_path]
+            result = subprocess.run(command, check=True, capture_output=True, env=env, text=True)
 
-                # DROID exports results to a CSV file next to the profile file.
-                csv_path = Path(f"{profile_path.rsplit('.', 1)[0]}.csv")
-                if not csv_path.exists():
-                    return None
-
-                with open(csv_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    # Make parsing robust by reading the header to find column indices.
-                    header = f.readline().strip().split(',')
-                    try:
-                        puid_index = header.index("PUID")
-                        mimetype_index = header.index("MIME_TYPE")
-                    except ValueError:
-                        logging.error(f"Could not find 'PUID' or 'MIME_TYPE' in DROID CSV header for {self.file_path}. Header: {header}")
-                        return None
-
-                    first_line = f.readline().strip()
-                    # Log the raw data for debugging purposes
-                    logging.info(f"DROID raw output for {self.file_path}: Header={header}, Line={first_line}")
-
-            parts = first_line.split(',') if first_line else []
-            if not parts or len(parts) <= max(puid_index, mimetype_index):
-                logging.warning(f"DROID output for {self.file_path} was empty or had too few columns.")
+            # The output is CSV formatted, but we only need the second line (the data).
+            # The first line is the header.
+            output_lines = result.stdout.strip().splitlines()
+            if len(output_lines) < 2:
+                logging.warning(f"DROID did not return sufficient output for {self.file_path}. Stdout: {result.stdout.strip()}")
                 return None
 
-            puid = parts[puid_index].strip('"')
-            mimetype = parts[mimetype_index].strip('"')
+            # The output is "PUID","MIME_TYPE". We split by comma and strip quotes.
+            header = output_lines[0].split(',')
+            data = output_lines[1].split(',')
 
-            return puid, mimetype
-
-        except (subprocess.CalledProcessError, FileNotFoundError, IndexError) as e:
-            logging.warning(f"DROID failed to process {self.file_path}. It may be corrupt or DROID is not configured. Error: {e}")
+            try:
+                puid_index = header.index('"PUID"')
+                mimetype_index = header.index('"MIME_TYPE"')
+                if len(data) > max(puid_index, mimetype_index):
+                    puid = data[puid_index].strip('"')
+                    mimetype = data[mimetype_index].strip('"')
+                    return puid, mimetype
+            except (ValueError, IndexError):
+                    logging.warning(f"Could not find required columns in DROID output for {self.file_path}. Header: {header}")
+                    return None, None
+        except subprocess.CalledProcessError as e:
+            # This is the key change: log the specific error from the subprocess
+            logging.warning(f"DROID failed for {self.file_path}. Stderr: {e.stderr.strip()}. Stdout: {e.stdout.strip()}")
+        except Exception as e:
+            logging.warning(f"DROID failed to process {self.file_path}. It may be corrupt or DROID is not configured. Error: {e}", exc_info=True)
             return None
 
     def process(self) -> Generator[FileMetadata, None, None]:

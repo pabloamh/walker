@@ -2,6 +2,7 @@
 import os
 import platform
 import spacy
+import stat
 import subprocess
 import sys
 import urllib.request
@@ -120,6 +121,12 @@ def download_java(dest_dir: Path, progress_callback: callable = None):
                 else:
                     target_path.parent.mkdir(exist_ok=True, parents=True)
                     target_path.write_bytes(zip_ref.read(member.filename))
+
+        # Set the execute permission on the java binary after extraction.
+        java_executable_path = java_dir / "bin" / "java"
+        if sys.platform != "win32" and java_executable_path.exists():
+            java_executable_path.chmod(java_executable_path.stat().st_mode | stat.S_IXUSR)
+
         
         if progress_callback: progress_callback("java", "Java setup complete!")
         else: print("...Java setup complete!")
@@ -166,17 +173,20 @@ def download_droid(dest_dir: Path, progress_callback: callable = None):
         else: print("...updating DROID signature file...")
 
         # Set up the environment for the subprocess to use our portable Java
+        # Build a clean environment for the DROID subprocess.
         java_home_path = dest_dir.parent / "java"
-        env = os.environ.copy()
+        env = {}
         if java_home_path.exists():
             env["JAVA_HOME"] = str(java_home_path.resolve())
+            java_bin_path = java_home_path / "bin"
+            # Prepend Java's bin and also include the original system PATH.
+            env["PATH"] = f"{str(java_bin_path.resolve())}{os.pathsep}{os.environ.get('PATH', '')}"
         subprocess.run([str(droid_script_path), "-d"], check=True, capture_output=True, env=env, text=True)
-
         if progress_callback: progress_callback("droid", "DROID setup complete!")
         else: print("...DROID setup complete!")
     except subprocess.CalledProcessError as e:
         error_message = f"Error setting up DROID. It might require Java to be installed.\n"
-        error_message += f"Stderr: {e.stderr.decode('utf-8', errors='ignore')}"
+        error_message += f"Stderr: {e.stderr.strip()}"
         if progress_callback: progress_callback("droid", error_message)
         else: print(f"...{error_message}")
     except Exception as e:

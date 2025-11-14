@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import os
 import sys
+import stat
 
 import click
 
@@ -23,6 +24,12 @@ def setup_environment():
     droid_script_path = script_dir / "droid" / "droid.sh"
     if sys.platform != "win32" and droid_script_path.exists():
         droid_script_path.chmod(droid_script_path.stat().st_mode | 0o111)
+
+    # Also ensure the portable java binary is executable
+    java_executable_path = script_dir / "java" / "bin" / "java"
+    if sys.platform != "win32" and java_executable_path.exists():
+        java_executable_path.chmod(java_executable_path.stat().st_mode | stat.S_IXUSR)
+
 
 def setup_logging():
     """Sets up logging to a file for warnings and errors."""

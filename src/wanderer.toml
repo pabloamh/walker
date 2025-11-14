@@ -4,7 +4,7 @@ database_path = "/home/pablomh/Projects/walker/wanderer.db"
 db_batch_size = 500
 exclude_dirs = []
 scan_dirs = [
-    "/home/pablomh/Documents/TestData",
+    "/home/pablomh/Projects/droid",
 ]
 pii_languages = [
     "en",
