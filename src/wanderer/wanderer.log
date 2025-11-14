@@ -1,3 +1,97 @@
 2025-11-12 22:17:05,052 - WARNING - DROID ran for /home/pablomh/Projects/droid/Pinguiniando.mp4 but did not produce an output CSV.
 2025-11-13 19:32:47,212 - WARNING - DROID ran for /home/pablomh/Projects/droid/Pinguiniando.mp4 but did not produce an output CSV.
 2025-11-13 19:45:38,048 - WARNING - Could not find required columns in DROID output for /home/pablomh/Projects/droid/Pinguiniando.mp4. Header: ['"PUID"']
+2025-11-13 19:59:12,267 - WARNING - model_to_presidio_entity_mapping is missing from configuration, using default
+2025-11-13 19:59:12,267 - WARNING - low_score_entity_names is missing from configuration, using default
+2025-11-13 19:59:12,267 - WARNING - labels_to_ignore is missing from configuration, using default
+2025-11-13 19:59:23,189 - WARNING - model_to_presidio_entity_mapping is missing from configuration, using default
+2025-11-13 19:59:23,190 - WARNING - low_score_entity_names is missing from configuration, using default
+2025-11-13 19:59:23,190 - WARNING - labels_to_ignore is missing from configuration, using default
+2025-11-13 19:59:23,503 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:23,503 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,503 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 19:59:23,503 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNifRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:23,503 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNieRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - ItDriverLicenseRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - ItFiscalCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - ItVatCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - ItIdentityCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - ItPassportRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:23,504 - WARNING - Recognizer not added to registry because language is not supported by registry - PlPeselRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 19:59:23,766 - WARNING - Entity ORDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity FAC is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity FAC is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity ORDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity EVENT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity FAC is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity FAC is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:23,766 - WARNING - Entity FAC is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:24,134 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/Pictures/2010_Lab_PWs/Lab pws list. Stdout: "PUID","MIME_TYPE"
+2025-11-13 19:59:46,453 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:46,454 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:46,454 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:46,454 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:46,454 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:46,454 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:50,624 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:50,624 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,624 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNifRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNieRecognizer supported languages: es, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - ItDriverLicenseRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - ItFiscalCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - ItVatCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - ItIdentityCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - ItPassportRecognizer supported languages: it, registry supported languages: en
+2025-11-13 19:59:50,625 - WARNING - Recognizer not added to registry because language is not supported by registry - PlPeselRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 19:59:52,072 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:52,072 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:52,073 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:52,073 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:52,073 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:52,073 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 19:59:55,082 - WARNING - model_to_presidio_entity_mapping is missing from configuration, using default
+2025-11-13 19:59:55,083 - WARNING - low_score_entity_names is missing from configuration, using default
+2025-11-13 19:59:55,083 - WARNING - labels_to_ignore is missing from configuration, using default
+2025-11-13 20:00:45,533 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:45,533 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: es, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - CreditCardRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNifRecognizer supported languages: es, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - EsNieRecognizer supported languages: es, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - ItDriverLicenseRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,116 - WARNING - Recognizer not added to registry because language is not supported by registry - ItFiscalCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,117 - WARNING - Recognizer not added to registry because language is not supported by registry - ItVatCodeRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,117 - WARNING - Recognizer not added to registry because language is not supported by registry - ItIdentityCardRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,117 - WARNING - Recognizer not added to registry because language is not supported by registry - ItPassportRecognizer supported languages: it, registry supported languages: en
+2025-11-13 20:00:46,117 - WARNING - Recognizer not added to registry because language is not supported by registry - PlPeselRecognizer supported languages: pl, registry supported languages: en
+2025-11-13 20:00:47,327 - WARNING - Entity WORK_OF_ART is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,327 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,327 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,328 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,328 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,328 - WARNING - Entity CARDINAL is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,328 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:00:47,328 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:01:00,683 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:01:13,136 - WARNING - Entity WORK_OF_ART is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:01:13,137 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:01:46,380 - WARNING - DROID did not return sufficient output for /tmp/tmpywiql3am/Lab pws list. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:18:11,783 - WARNING - Entity WORK_OF_ART is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:18:11,789 - WARNING - Entity EVENT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:19:16,143 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.Trash-1000/info/01-03- Entre Caníbales.mp3.trashinfo. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:19:16,408 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:19:19,197 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.Trash-1000/info/01-08- Angel Eléctrico.mp3.trashinfo. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:19:19,642 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:19:22,476 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.Trash-1000/info/01-01- Un Misil En Mi Placard.mp3.trashinfo. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:19:32,684 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.Trash-1000/info/01-07- Té Para Tres.mp3.trashinfo. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:19:32,859 - WARNING - Entity LAW is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:22:18,774 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.android_secure/com.lava.music-1.asec. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:22:22,014 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.android_secure/com.alawar.SnarkBusters2.Freemium-1.asec. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:26:02,386 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.RocketPlayer/thumbs/journal. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:26:04,676 - WARNING - Entity PRODUCT is not mapped to a Presidio entity, but keeping anyway. Add to `NerModelConfiguration.labels_to_ignore` to remove.
+2025-11-13 20:27:26,765 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.faClient/data/account. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:27:48,686 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/Android/data/com.google.android.music/files/._playmusicid. Stdout: "PUID","MIME_TYPE"
+2025-11-13 20:27:54,022 - WARNING - DROID did not return sufficient output for /home/pablomh/Documents/TestData/phone033114/.bugsense. Stdout: "PUID","MIME_TYPE"

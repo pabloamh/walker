@@ -351,8 +351,17 @@ class SettingsViewWidget(QWidget):
         self.update_scan_dirs_list()
         self.update_exclude_dirs_list()
         
+        # --- Programmatically add Remove buttons ---
+        self.remove_scan_dir_button = QPushButton("Remove Selected")
+        self.ui.scan_dirs_layout.addWidget(self.remove_scan_dir_button)
+        
+        self.remove_exclude_dir_button = QPushButton("Remove Selected")
+        self.ui.exclude_dirs_layout.addWidget(self.remove_exclude_dir_button)
+        
         self.ui.add_scan_dir_button.clicked.connect(self.add_scan_dir)
         self.ui.add_exclude_dir_button.clicked.connect(self.add_excluded_dir)
+        self.remove_scan_dir_button.clicked.connect(self.remove_scan_dir)
+        self.remove_exclude_dir_button.clicked.connect(self.remove_exclude_dir)
         self.ui.save_settings_button.clicked.connect(self.save_settings)
         
         # Offline Assets Widget
@@ -391,12 +400,40 @@ class SettingsViewWidget(QWidget):
                 self.app_config.scan_dirs.append(selected_dir)
                 self.update_scan_dirs_list()
 
+    def remove_scan_dir(self):
+        """Removes the selected directory from the scan list."""
+        selected_items = self.scan_dirs_list.selectedItems()
+        if not selected_items:
+            return # Nothing selected
+        
+        dir_to_remove = selected_items[0].text()
+        try:
+            self.app_config.scan_dirs.remove(dir_to_remove)
+            self.update_scan_dirs_list()
+        except ValueError:
+            # This case should ideally not happen if the list is in sync
+            pass
+
     def add_excluded_dir(self):
         dir_to_exclude = self.new_exclude_dir_field.text().strip()
         if dir_to_exclude and dir_to_exclude not in self.app_config.exclude_dirs:
             self.app_config.exclude_dirs.append(dir_to_exclude)
             self.new_exclude_dir_field.clear()
             self.update_exclude_dirs_list()
+
+    def remove_exclude_dir(self):
+        """Removes the selected directory from the exclude list."""
+        selected_items = self.exclude_dirs_list.selectedItems()
+        if not selected_items:
+            return # Nothing selected
+        
+        dir_to_remove = selected_items[0].text()
+        try:
+            self.app_config.exclude_dirs.remove(dir_to_remove)
+            self.update_exclude_dirs_list()
+        except ValueError:
+            # This case should ideally not happen if the list is in sync
+            pass
 
     def save_settings(self):
         # Update app_config from UI fields

@@ -4,7 +4,7 @@ database_path = "/home/pablomh/Projects/walker/wanderer.db"
 db_batch_size = 500
 exclude_dirs = []
 scan_dirs = [
-    "/home/pablomh/Projects/droid",
+    "/home/pablomh/Documents/TestData",
 ]
 pii_languages = [
     "en",
@@ -15,6 +15,6 @@ extract_text_on_scan = true
 compute_perceptual_hash = true
 archive_exclude_extensions = [
     ".cbr",
-    ".epub",
     ".cbz",
+    ".epub",
 ]
