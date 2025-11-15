@@ -172,19 +172,19 @@ def refine_images_by_path(paths: Tuple[Path, ...], workers: int):
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
     indexer.refine_image_content_by_path(paths)
 
-@cli.command(name="refine-fido-by-path")
+@cli.command(name="refine-droid-by-path")
 @click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))
 @click.option('--workers', default=3, help='Number of processor workers.')
-def refine_fido_by_path(paths: Tuple[Path, ...], workers: int):
+def refine_droid_by_path(paths: Tuple[Path, ...], workers: int):
     """
-    Forces a Fido rescan for all files under a specific path.
+    Forces a DROID rescan for all files under a specific path.
 
     This is useful for ensuring the highest accuracy file identification
     on a targeted directory (e.g., '~/Scans').
     """
     from .indexer import Indexer
     indexer = Indexer(root_paths=(), workers=workers, memory_limit_gb=None, exclude_paths=())
-    indexer.refine_fido_by_path(paths)
+    indexer.refine_droid_by_path(paths)
 
 @cli.command(name="refine-images-by-mime-and-path")
 @click.argument('paths', nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, resolve_path=True, path_type=Path))

@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from . import config, database, models, scanner
 from .models import Config
-from . import worker
+from . import worker, file_processor
 
 
 class Indexer:
@@ -215,6 +215,58 @@ class Indexer:
         writer_finished_event.wait()  # Wait for the writer to confirm it's done
         writer_thread.join()  # Cleanly join the thread
 
+    def _execute_droid_refinement(self, paths_to_process: list[Path], description: str) -> None:
+        """
+        Manages a DROID batch process for a list of files, updating the DB directly.
+        This is much faster than the one-by-one process pool for DROID.
+
+        Args:
+            paths_to_process: A list of file paths to be processed by DROID.
+            description: A description for the tqdm progress bar.
+        """
+        # Group files by their parent directory to run DROID efficiently.
+        dirs_to_scan = {p.parent for p in paths_to_process}
+
+        with database.get_session() as db_session:
+            iterator = tqdm(dirs_to_scan, desc=description, unit="dir") if not self.progress_callback else dirs_to_scan
+
+            for i, directory in enumerate(iterator):
+                if self.progress_callback:
+                    self.progress_callback(i + 1, len(dirs_to_scan), f"DROID: {directory.name}")
+                elif isinstance(iterator, tqdm):
+                    iterator.set_postfix({"dir": str(directory)})
+
+                updates = []
+                try:
+                    # 1. Run DROID and get results for the current directory.
+                    droid_results = list(file_processor.FileProcessor.get_pronom_ids_in_batch(directory, self.app_config))
+                    if not droid_results:
+                        continue
+
+                    # 2. Extract file paths from DROID results to query the DB.
+                    paths_from_droid = [res[0] for res in droid_results]
+
+                    # 3. Fetch the primary keys (id) for the files we need to update.
+                    #    This is the crucial step to fix the InvalidRequestError.
+                    existing_files = db_session.query(models.FileIndex.id, models.FileIndex.path).filter(models.FileIndex.path.in_(paths_from_droid)).all()
+                    path_to_id_map = {path: file_id for file_id, path in existing_files}
+
+                    # 4. Build the list of updates, now including the primary key 'id'.
+                    for absolute_path_str, puid, mimetype in droid_results:
+                        if absolute_path_str not in path_to_id_map: continue
+                        update_data = {"id": path_to_id_map[absolute_path_str], "pronom_id": puid}
+                        if mimetype and mimetype and mimetype != "application/octet-stream":
+                            update_data["mime_type"] = mimetype
+                        updates.append(update_data)
+
+                    if updates:
+                        # 5. Perform the bulk update.
+                        db_session.bulk_update_mappings(models.FileIndex, updates)
+                        db_session.commit()
+                except Exception as e:
+                    logging.error(f"Error during DROID batch refinement for {directory}: {e}", exc_info=True)
+                    db_session.rollback()
+
 
     def refine_unknown_files(self):
         """
@@ -247,8 +299,7 @@ class Indexer:
                 # regardless of the current working directory.
                 paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
-                    self._execute_processing_pool(paths_to_process, f"Refining chunk {i//chunk_size + 1}")
-                    total_refined += len(paths_to_process)
+                    self._execute_droid_refinement(paths_to_process, f"Refining chunk {i//chunk_size + 1}")
     
         click.echo(f"DROID refinement process complete. {total_refined} files were re-processed.")
 
@@ -379,16 +430,16 @@ class Indexer:
 
         click.echo(f"Path-based image refinement complete. {total_refined} files were re-processed.")
 
-    def refine_fido_by_path(self, paths: Tuple[Path, ...]):
+    def refine_droid_by_path(self, paths: Tuple[Path, ...]):
         """
-        Forces a Fido rescan on all files under a specific path.
+        Forces a DROID rescan on all files under a specific path.
         """
         self._prepare_settings()
-        if not self.app_config.use_fido:
-            click.echo(click.style("Fido is not enabled. Please set 'use_fido = true' in your wanderer.toml.", fg="yellow"))
+        if not self.app_config.use_droid:
+            click.echo(click.style("DROID is not enabled. Please set 'use_droid = true' in your wanderer.toml.", fg="yellow"))
             return
 
-        click.echo(f"Querying database for all files under the specified paths for Fido rescan...")
+        click.echo(f"Querying database for all files under the specified paths for DROID rescan...")
         chunk_size = 10000
         total_refined = 0
 
@@ -402,18 +453,17 @@ class Indexer:
             total_to_refine = query.count()
 
             if total_to_refine == 0:
-                click.echo("No files found under the specified paths to refine with Fido.")
+                click.echo("No files found under the specified paths to refine with DROID.")
                 return
 
-            click.echo(f"Found {total_to_refine} files to refine with Fido. Processing in chunks...")
+            click.echo(f"Found {total_to_refine} files to refine with DROID. Processing in chunks...")
             for i in range(0, total_to_refine, chunk_size):
                 chunk = query.offset(i).limit(chunk_size).all()
                 paths_to_process = [Path(f.path).resolve() for f in chunk if Path(f.path).exists()]
                 if paths_to_process:
-                    self._execute_processing_pool(paths_to_process, f"Fido-refining chunk {i//chunk_size + 1}")
-                    total_refined += len(paths_to_process)
+                    self._execute_droid_refinement(paths_to_process, f"DROID-refining chunk {i//chunk_size + 1}")
 
-        click.echo(f"Path-based Fido refinement complete. {total_refined} files were re-processed.")
+        click.echo(f"Path-based DROID refinement complete.")
 
     def run(self):
         """
@@ -449,6 +499,7 @@ class Indexer:
                 self.progress_callback(value, total, description)
 
         total_files_processed = 0
+        all_processed_paths = []
         try:
             click.echo(f"Starting scan with {self.final_workers} workers...")
             if self.final_memory_limit and sys.platform != "win32":
@@ -466,9 +517,16 @@ class Indexer:
                         if files_to_process:
                             report_progress(pbar.n, pbar.total, f"Processing {len(files_to_process)} new/modified files...")
                             self._execute_processing_pool(files_to_process, "Processing chunk")
+                            all_processed_paths.extend(files_to_process)
                             total_files_processed += len(files_to_process)
                             pbar.set_postfix({"processed": total_files_processed})
 
+            # --- Automatic DROID Refinement ---
+            # If DROID is enabled, run a batch refinement on all the files that were just processed.
+            # This is much more efficient than running DROID one-by-one during the initial scan.
+            if self.app_config.use_droid and all_processed_paths:
+                click.echo(f"\nDROID is enabled. Running batch analysis on {len(all_processed_paths)} newly processed files...")
+                self._execute_droid_refinement(all_processed_paths, "DROID Batch Analysis")
             click.echo("All files have been processed and indexed.")
             status = 'completed'
         except Exception as e:
